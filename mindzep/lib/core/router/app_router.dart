@@ -36,6 +36,7 @@ import '../../features/psychologist/profile/presentation/pages/psych_profile_pag
 import '../../features/psychologist/sessions/presentation/pages/psych_sessions_page.dart';
 import '../../features/psychologist/slots/presentation/pages/psych_slots_page.dart';
 import '../../features/admin/appointments/presentation/pages/admin_appointments_page.dart';
+import '../../features/admin/blogs/presentation/pages/admin_blog_management_page.dart';
 import '../../features/admin/dashboard/presentation/pages/admin_dashboard_page.dart';
 import '../../features/admin/psychologists/presentation/pages/admin_psych_management_page.dart';
 import '../../features/admin/settings/presentation/pages/admin_settings_page.dart';
@@ -213,6 +214,12 @@ final appRouter = GoRouter(
           GoRoute(
             path: RouteNames.adminAppointments,
             builder: (_, __) => const AdminAppointmentsPage(),
+          ),
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(
+            path: RouteNames.adminBlogs,
+            builder: (_, __) => const AdminBlogManagementPage(),
           ),
         ]),
         StatefulShellBranch(routes: [
@@ -482,6 +489,10 @@ class AdminShell extends StatelessWidget {
               icon: Icon(Icons.event_outlined),
               selectedIcon: Icon(Icons.event_rounded),
               label: 'Appointments'),
+          NavigationDestination(
+              icon: Icon(Icons.article_outlined),
+              selectedIcon: Icon(Icons.article_rounded),
+              label: 'Blogs'),
           NavigationDestination(
               icon: Icon(Icons.settings_outlined),
               selectedIcon: Icon(Icons.settings_rounded),

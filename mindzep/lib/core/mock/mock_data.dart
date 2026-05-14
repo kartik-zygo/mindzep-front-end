@@ -539,6 +539,72 @@ class MockData {
       createdAt: DateTime(2026, 1, 18),
       publishedAt: DateTime(2026, 1, 20),
     ),
+    BlogEntity(
+      id: 'b005',
+      psychologistId: 'p002',
+      psychologistName: 'Dr. Vikram Mehta',
+      psychologistAvatar: 'https://i.pravatar.cc/150?img=52',
+      title: 'Parenting a Child with ADHD: 7 Practical Strategies',
+      body:
+          'Raising a child with ADHD comes with unique challenges and unique joys. In this article, I share evidence-based strategies that parents can implement at home to support their child\'s growth, focus, and emotional regulation...',
+      category: 'Child Psychology',
+      tags: ['ADHD', 'parenting', 'children', 'focus'],
+      coverImageUrl:
+          'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?w=800',
+      status: BlogStatus.underReview,
+      viewCount: 0,
+      commentCount: 0,
+      createdAt: DateTime(2026, 5, 12),
+    ),
+    BlogEntity(
+      id: 'b006',
+      psychologistId: 'p004',
+      psychologistName: 'Dr. Rajesh Sharma',
+      psychologistAvatar: 'https://i.pravatar.cc/150?img=57',
+      title: 'Burnout is Not a Badge of Honour: Recognising the Signs',
+      body:
+          'Corporate culture has long glorified overwork. But burnout — a state of chronic physical and emotional exhaustion — is now recognised by the WHO as a serious occupational phenomenon. Here\'s how to identify it early and recover...',
+      category: 'Stress Management',
+      tags: ['burnout', 'stress', 'work-life balance', 'mental health'],
+      coverImageUrl:
+          'https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=800',
+      status: BlogStatus.underReview,
+      viewCount: 0,
+      commentCount: 0,
+      createdAt: DateTime(2026, 5, 11),
+    ),
+    BlogEntity(
+      id: 'b007',
+      psychologistId: 'p005',
+      psychologistName: 'Dr. Kavya Reddy',
+      psychologistAvatar: 'https://i.pravatar.cc/150?img=38',
+      title: 'Sleep Hygiene 101: A Complete Guide to Better Sleep',
+      body:
+          'Poor sleep is one of the most underrated mental health challenges. From sleep schedule consistency to digital detox before bed, this guide covers everything you need to build a sustainable sleep hygiene routine...',
+      category: 'Sleep & Wellness',
+      tags: ['sleep', 'insomnia', 'wellness', 'habits'],
+      coverImageUrl:
+          'https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?w=800',
+      status: BlogStatus.underReview,
+      viewCount: 0,
+      commentCount: 0,
+      createdAt: DateTime(2026, 5, 9),
+    ),
+    BlogEntity(
+      id: 'b008',
+      psychologistId: 'p003',
+      psychologistName: 'Dr. Priya Nair',
+      psychologistAvatar: 'https://i.pravatar.cc/150?img=44',
+      title: 'The Language of Grief: When There Are No Words',
+      body:
+          'Grief doesn\'t follow a script. Whether you\'ve lost a loved one, a relationship, or a version of yourself — understanding the non-linear nature of grief can help you be kinder to yourself through the process...',
+      category: 'Relationships',
+      tags: ['grief', 'loss', 'healing', 'emotions'],
+      status: BlogStatus.rejected,
+      viewCount: 0,
+      commentCount: 0,
+      createdAt: DateTime(2026, 4, 20),
+    ),
   ];
 
   // ─── Admin Stats ───────────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
   bool _isOnline = true;
 
   // Generate 7-day strip starting from today
+  
   late final List<DateTime> _weekDays;
 
   @override

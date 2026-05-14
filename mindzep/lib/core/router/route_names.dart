@@ -43,5 +43,6 @@ class RouteNames {
   static const adminPsychologists = '/admin/psychologists';
   static const adminUsers = '/admin/users';
   static const adminAppointments = '/admin/appointments';
+  static const adminBlogs = '/admin/blogs';
   static const adminSettings = '/admin/settings';
 }
