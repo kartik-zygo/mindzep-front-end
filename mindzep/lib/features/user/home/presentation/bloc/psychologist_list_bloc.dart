@@ -1,27 +1,36 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../../../core/mock/mock_data.dart';
 import '../../../../../core/entities/entities.dart';
 import '../../../../../core/widgets/app_avatar.dart';
+import '../../../../psychologist/data/repositories/psychologist_repository.dart';
 import 'psychologist_list_event_state.dart';
 
 class PsychologistListBloc
     extends Bloc<PsychologistListEvent, PsychologistListState> {
-  PsychologistListBloc() : super(const PsychologistListInitial()) {
+  PsychologistListBloc({required PsychologistRepository repository})
+      : _repository = repository,
+        super(const PsychologistListInitial()) {
     on<LoadPsychologists>(_onLoad);
     on<FilterChanged>(_onFilter);
     on<SearchQueryChanged>(_onSearch);
     on<SpecializationSelected>(_onSpecialization);
   }
 
+  final PsychologistRepository _repository;
+
   Future<void> _onLoad(
       LoadPsychologists event, Emitter<PsychologistListState> emit) async {
     emit(const PsychologistListLoading());
-    await Future.delayed(const Duration(milliseconds: 600));
-    emit(PsychologistListLoaded(
-      all: MockData.psychologists,
-      filtered: MockData.psychologists,
-      appliedFilters: FilterParams.empty,
-    ));
+    try {
+      final response = await _repository.listPsychologists(page: 1, limit: 100);
+      final psychologists = response.items.map((item) => item.toEntity()).toList();
+      emit(PsychologistListLoaded(
+        all: psychologists,
+        filtered: psychologists,
+        appliedFilters: FilterParams.empty,
+      ));
+    } catch (error) {
+      emit(PsychologistListError(error.toString()));
+    }
   }
 
   void _onFilter(FilterChanged event, Emitter<PsychologistListState> emit) {

@@ -7,7 +7,6 @@ import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/router/route_names.dart';
 import '../../domain/entities/user_entity.dart';
 import '../bloc/auth_bloc.dart';
-import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
 
 class SplashPage extends StatefulWidget {
@@ -37,7 +36,6 @@ class _SplashPageState extends State<SplashPage>
       CurvedAnimation(parent: _controller, curve: Curves.elasticOut),
     );
     _controller.forward();
-    context.read<AuthBloc>().add(const AppStarted());
   }
 
   @override
@@ -51,19 +49,25 @@ class _SplashPageState extends State<SplashPage>
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
-          switch (state.user.role) {
-            case UserRole.user:
-              context.go(RouteNames.userHome);
-              break;
-            case UserRole.psychologist:
-              context.go(RouteNames.psychDashboard);
-              break;
-            case UserRole.admin:
-              context.go(RouteNames.adminDashboard);
-              break;
-          }
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            switch (state.user.role) {
+              case UserRole.user:
+                context.go(RouteNames.userHome);
+                break;
+              case UserRole.psychologist:
+                context.go(RouteNames.psychDashboard);
+                break;
+              case UserRole.admin:
+                context.go(RouteNames.adminDashboard);
+                break;
+            }
+          });
         } else if (state is AuthUnauthenticated) {
-          context.go(RouteNames.onboarding);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            context.go(RouteNames.onboarding);
+          });
         }
       },
       child: Scaffold(

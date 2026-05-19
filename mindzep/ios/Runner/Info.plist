@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Mindzep needs microphone access for real-time therapy calls.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Mindzep needs camera access for video therapy sessions.</string>
 </dict>
 </plist>

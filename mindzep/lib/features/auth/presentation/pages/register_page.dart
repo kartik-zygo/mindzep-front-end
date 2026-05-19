@@ -5,6 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_dimensions.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/constants/app_text_styles.dart';
+import '../../../../core/router/route_names.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_snackbar.dart';
@@ -12,6 +13,7 @@ import '../../../../core/widgets/app_text_field.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
 import '../bloc/auth_state.dart';
+import '../../domain/entities/user_entity.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -62,7 +64,33 @@ class _RegisterPageState extends State<RegisterPage> {
   Widget build(BuildContext context) {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is AuthError) {
+        if (state is AuthOtpSent && state.purpose == 'registration') {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            context.push(
+              RouteNames.verifyOtp,
+              extra: {
+                'identifier': state.identifier,
+                'purpose': state.purpose,
+              },
+            );
+          });
+        } else if (state is AuthAuthenticated) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            switch (state.user.role) {
+              case UserRole.user:
+                context.go(RouteNames.userHome);
+                break;
+              case UserRole.psychologist:
+                context.go(RouteNames.psychDashboard);
+                break;
+              case UserRole.admin:
+                context.go(RouteNames.adminDashboard);
+                break;
+            }
+          });
+        } else if (state is AuthError) {
           AppSnackbar.show(context,
               message: state.message, type: SnackbarType.error);
         }

@@ -207,32 +207,20 @@ class PsychologistCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   GestureDetector(
-                    onTap: isAvailable ? () => context.push(RouteNames.preCall, extra: psychologist) : null,
+                    onTap: () => context.push(RouteNames.preCall, extra: psychologist),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                       decoration: BoxDecoration(
-                        gradient: isAvailable
-                            ? const LinearGradient(colors: [Color(0xFF34C759), Color(0xFF30D158)])
-                            : null,
-                        color: isAvailable ? null : const Color(0xFFE0E0E0),
+                        gradient: const LinearGradient(colors: [Color(0xFF34C759), Color(0xFF30D158)]),
                         borderRadius: BorderRadius.circular(14),
-                        boxShadow: isAvailable
-                            ? [BoxShadow(color: const Color(0xFF34C759).withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 3))]
-                            : null,
+                        boxShadow: [BoxShadow(color: const Color(0xFF34C759).withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 3))],
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.phone_rounded, size: 15, color: isAvailable ? Colors.white : const Color(0xFF8E8E93)),
+                          const Icon(Icons.phone_rounded, size: 15, color: Colors.white),
                           const SizedBox(width: 5),
-                          Text(
-                            'Call Now',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: isAvailable ? Colors.white : const Color(0xFF8E8E93),
-                            ),
-                          ),
+                          const Text('Call Now', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white)),
                         ],
                       ),
                     ),

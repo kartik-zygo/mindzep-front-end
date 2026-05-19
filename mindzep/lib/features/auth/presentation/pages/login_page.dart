@@ -48,17 +48,20 @@ class _LoginPageState extends State<LoginPage> {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
-          switch (state.user.role) {
-            case UserRole.user:
-              context.go(RouteNames.userHome);
-              break;
-            case UserRole.psychologist:
-              context.go(RouteNames.psychDashboard);
-              break;
-            case UserRole.admin:
-              context.go(RouteNames.adminDashboard);
-              break;
-          }
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            switch (state.user.role) {
+              case UserRole.user:
+                context.go(RouteNames.userHome);
+                break;
+              case UserRole.psychologist:
+                context.go(RouteNames.psychDashboard);
+                break;
+              case UserRole.admin:
+                context.go(RouteNames.adminDashboard);
+                break;
+            }
+          });
         } else if (state is AuthError) {
           AppSnackbar.show(context,
               message: state.message, type: SnackbarType.error);
@@ -197,7 +200,7 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: AppDimensions.paddingM),
-                  // Demo hint
+                  // Integration hint
                   Container(
                     padding: const EdgeInsets.all(AppDimensions.paddingM),
                     decoration: BoxDecoration(
@@ -208,18 +211,15 @@ class _LoginPageState extends State<LoginPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Demo Credentials',
+                        Text('Backend Authentication Enabled',
                             style: AppTextStyles.footnote.copyWith(
                                 fontWeight: FontWeight.w600,
                                 color: AppColors.primary)),
                         const SizedBox(height: 4),
-                        Text('User: user@mindzep.com / user123',
+                        Text('Use credentials created through Register + OTP verification.',
                             style: AppTextStyles.caption1
                                 .copyWith(color: AppColors.textSecondary)),
-                        Text('Psych: psych@mindzep.com / psych123',
-                            style: AppTextStyles.caption1
-                                .copyWith(color: AppColors.textSecondary)),
-                        Text('Admin: admin@mindzep.com / admin123',
+                        Text('For Google login, wire a real idToken provider before production release.',
                             style: AppTextStyles.caption1
                                 .copyWith(color: AppColors.textSecondary)),
                       ],

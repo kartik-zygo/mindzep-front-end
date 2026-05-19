@@ -4,11 +4,18 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/currency_utils.dart';
 import '../../../../../core/widgets/app_button.dart';
 import '../../../../../core/widgets/app_card.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../appointments/data/models/appointment_models.dart';
+import '../../../appointments/data/repositories/appointment_repository.dart';
+import '../../../payments/data/models/payment_models.dart';
+import '../../../payments/data/repositories/payment_repository.dart';
+import '../../../payments/data/services/cashfree_payment_service.dart';
+import '../../../../../injection/injection_container.dart';
 
 class PaymentPage extends StatefulWidget {
   final PsychologistEntity psychologist;
@@ -30,11 +37,24 @@ class _PaymentPageState extends State<PaymentPage> {
   int _selectedMethod = 0;
   bool _isProcessing = false;
 
+  late final AppointmentRepository _appointmentRepository;
+  late final PaymentRepository _paymentRepository;
+  late final CashfreePaymentService _cashfreePaymentService;
+  String? _appointmentId;
+
   final _methods = [
     (icon: Icons.account_balance_wallet_rounded, label: 'UPI / Wallets'),
     (icon: Icons.credit_card_rounded, label: 'Credit / Debit Card'),
     (icon: Icons.account_balance_rounded, label: 'Net Banking'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _paymentRepository = sl<PaymentRepository>();
+    _cashfreePaymentService = sl<CashfreePaymentService>();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +86,7 @@ class _PaymentPageState extends State<PaymentPage> {
 
   Widget _buildOrderSummary() {
     final est = CurrencyUtils.calculateCallCost(
-        totalSeconds: 30 * 60,
+        totalSeconds: widget.slot.durationMinutes * 60,
         freeMinutes: widget.psychologist.freeMinutes,
         ratePerMinute: widget.psychologist.ratePerMinute);
     return AppCard(
@@ -97,7 +117,7 @@ class _PaymentPageState extends State<PaymentPage> {
                   widget.psychologist.ratePerMinute),
               highlight: true),
           _SummaryRow(
-              label: 'Est. for 30 min',
+              label: 'Est. for ${widget.slot.durationMinutes} min',
               value: CurrencyUtils.formatRupees(est),
               highlight: true),
           Container(
@@ -213,14 +233,81 @@ class _PaymentPageState extends State<PaymentPage> {
 
   Future<void> _processPayment(BuildContext context) async {
     setState(() => _isProcessing = true);
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    setState(() => _isProcessing = false);
-    context.pushReplacement(RouteNames.bookingConfirmed, extra: {
-      'psychologist': widget.psychologist,
-      'slot': widget.slot,
-      'sessionType': widget.sessionType,
-    });
+
+    try {
+      final estimatedAmount = CurrencyUtils.calculateCallCost(
+        totalSeconds: widget.slot.durationMinutes * 60,
+        freeMinutes: widget.psychologist.freeMinutes,
+        ratePerMinute: widget.psychologist.ratePerMinute,
+      );
+
+      if (_appointmentId == null) {
+        final appointment = await _appointmentRepository.bookAppointment(
+          BookAppointmentRequest(
+            slotId: widget.slot.id,
+            psychologistId: widget.psychologist.id,
+            sessionType: widget.sessionType,
+          ),
+        );
+        _appointmentId = appointment.id;
+      }
+
+      final order = await _paymentRepository.createOrder(
+        CreateOrderRequest(
+          type: 'appointment',
+          amount: estimatedAmount,
+          appointmentId: _appointmentId,
+        ),
+      );
+
+      final cashfreeResult = await _cashfreePaymentService.startCheckout(
+        order: order,
+      );
+
+      if (!cashfreeResult.isSuccess) {
+        if (!mounted) return;
+        AppSnackbar.show(
+          context,
+          message: cashfreeResult.message,
+          type: SnackbarType.error,
+        );
+        return;
+      }
+
+      final cfPaymentId = (cashfreeResult.raw['referenceId'] ??
+              cashfreeResult.raw['cfPaymentId'] ??
+              cashfreeResult.raw['paymentId'] ??
+              cashfreeResult.raw['txId'] ??
+              '')
+          .toString();
+
+      await _paymentRepository.verifyPayment(
+        VerifyPaymentRequest(
+          cashfreeOrderId: order.orderId,
+          cfPaymentId: cfPaymentId,
+        ),
+      );
+
+      if (!mounted) return;
+      context.pushReplacement(RouteNames.bookingConfirmed, extra: {
+        'psychologist': widget.psychologist,
+        'slot': widget.slot,
+        'sessionType': widget.sessionType,
+      });
+    } catch (error) {
+      if (!mounted) return;
+      final message =
+          error is ApiErrorModel ? error.message : 'Payment failed. Please retry.';
+      AppSnackbar.show(
+        context,
+        message: message,
+        type: SnackbarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
   }
 }
 

@@ -4,14 +4,152 @@ import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
-import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../injection/injection_container.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_avatar.dart';
 import '../../../../../core/widgets/app_card.dart';
+import '../../../../admin/data/repositories/admin_repository.dart';
+import '../../../../user/blog/data/repositories/blog_repository.dart';
 
-class AdminDashboardPage extends StatelessWidget {
+class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});
+
+  @override
+  State<AdminDashboardPage> createState() => _AdminDashboardPageState();
+}
+
+class _AdminDashboardPageState extends State<AdminDashboardPage> {
+  late final AdminRepository _adminRepository;
+  late final BlogRepository _blogRepository;
+
+  bool _loading = true;
+  Map<String, dynamic> _metrics = <String, dynamic>{};
+  List<Map<String, dynamic>> _revenue = const <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _recentPsychologists =
+      const <Map<String, dynamic>>[];
+  int _pendingPsychologistCount = 0;
+  int _pendingBlogCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _adminRepository = sl<AdminRepository>();
+    _blogRepository = sl<BlogRepository>();
+    _loadDashboard();
+  }
+
+  Future<void> _loadDashboard() async {
+    setState(() {
+      _loading = true;
+    });
+
+    try {
+      final dashboard = await _adminRepository.dashboard();
+      final psychologists = await _adminRepository.listPsychologists(
+        page: 1,
+        limit: 20,
+      );
+      final submittedBlogs = await _blogRepository.listAdminSubmittedBlogs(
+        page: 1,
+        limit: 50,
+      );
+
+      final metrics = _asMap(dashboard['metrics']);
+      final chartData = _asMapList(dashboard['chartData']);
+
+      final revenue = chartData
+          .map((point) {
+            final day = (point['day'] ?? point['date'] ?? '').toString();
+            final amount = (point['amount'] ?? point['revenue'] ?? 0) as num;
+            return {
+              'day': day.length >= 3 ? day.substring(0, 3) : day,
+              'amount': amount.toDouble(),
+            };
+          })
+          .where((point) => point['day']!.toString().isNotEmpty)
+          .toList();
+
+      final psychList = psychologists.map(_asMap).toList();
+      final pendingPsychologists = psychList
+          .where((psych) => !_readBool(psych, ['isActive', 'active'], fallback: true))
+          .length;
+
+      if (!mounted) return;
+      setState(() {
+        _metrics = metrics;
+        _revenue = revenue;
+        _recentPsychologists = psychList.take(3).toList();
+        _pendingPsychologistCount = pendingPsychologists;
+        _pendingBlogCount = submittedBlogs.length;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _metrics = <String, dynamic>{};
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Map<String, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      return value;
+    }
+    if (value is Map) {
+      return value.map((key, val) => MapEntry(key.toString(), val));
+    }
+    return <String, dynamic>{};
+  }
+
+  List<Map<String, dynamic>> _asMapList(dynamic value) {
+    if (value is List) {
+      return value.map((entry) => _asMap(entry)).toList();
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
+  bool _readBool(
+    Map<String, dynamic> json,
+    List<String> keys, {
+    required bool fallback,
+  }) {
+    for (final key in keys) {
+      final value = json[key];
+      if (value is bool) return value;
+      if (value is String) {
+        if (value.toLowerCase() == 'true') return true;
+        if (value.toLowerCase() == 'false') return false;
+      }
+      if (value is num) return value != 0;
+    }
+    return fallback;
+  }
+
+  int _metricInt(String key) {
+    final value = _metrics[key];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  double _metricDouble(List<String> keys) {
+    for (final key in keys) {
+      final value = _metrics[key];
+      if (value is double) return value;
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        final parsed = double.tryParse(value);
+        if (parsed != null) return parsed;
+      }
+    }
+    return 0;
+  }
 
   static const _adminGradient = LinearGradient(
     colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
@@ -21,12 +159,25 @@ class AdminDashboardPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final metrics = MockData.dashboardMetrics;
-    final revenue = MockData.revenueData;
-    final pendingPsychs = MockData.pendingPsychologists;
-    final pendingBlogs =
-        MockData.blogs.where((b) => b.status == BlogStatus.underReview).toList();
-    final totalAlerts = pendingPsychs.length + pendingBlogs.length;
+    final totalUsers = _metricInt('totalUsers');
+    final activePsychologists = _metricInt('activePsychologists');
+    final sessionsToday = _metricInt('sessionsToday');
+    final revenueThisMonth = _metricDouble(
+      const ['revenueThisMonth', 'totalRevenue', 'revenueToday'],
+    );
+    final revenuePoints = _revenue.isNotEmpty
+        ? _revenue
+        : const <Map<String, dynamic>>[
+            {'day': 'Mon', 'amount': 0.0},
+            {'day': 'Tue', 'amount': 0.0},
+            {'day': 'Wed', 'amount': 0.0},
+            {'day': 'Thu', 'amount': 0.0},
+            {'day': 'Fri', 'amount': 0.0},
+            {'day': 'Sat', 'amount': 0.0},
+            {'day': 'Sun', 'amount': 0.0},
+          ];
+
+    final totalAlerts = _pendingPsychologistCount + _pendingBlogCount;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -126,26 +277,26 @@ class AdminDashboardPage extends StatelessWidget {
                             icon: Icons.people_rounded,
                             iconColor: const Color(0xFFADB5FF),
                             label: 'Total Users',
-                            value: '${metrics['totalUsers']}',
+                            value: '$totalUsers',
                           ),
                           _StatCard(
                             icon: Icons.psychology_rounded,
                             iconColor: const Color(0xFF34C7A3),
                             label: 'Psychologists',
-                            value: '${metrics['activePsychologists']}',
+                            value: '$activePsychologists',
                           ),
                           _StatCard(
                             icon: Icons.video_call_rounded,
                             iconColor: const Color(0xFFFFD93D),
                             label: "Today's Sessions",
-                            value: '${metrics['sessionsToday']}',
+                            value: '$sessionsToday',
                           ),
                           _StatCard(
                             icon: Icons.trending_up_rounded,
                             iconColor: const Color(0xFFA8E6CF),
                             label: 'Revenue',
                             value:
-                                '₹${((metrics['revenueThisMonth'] as double) / 1000).toStringAsFixed(0)}K',
+                                '₹${(revenueThisMonth / 1000).toStringAsFixed(0)}K',
                           ),
                         ],
                       ),
@@ -161,10 +312,15 @@ class AdminDashboardPage extends StatelessWidget {
             padding: const EdgeInsets.all(AppDimensions.paddingM),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
+                if (_loading)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: AppDimensions.paddingM),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
                 // Pending alerts
-                if (pendingPsychs.isNotEmpty) ...[
+                if (_pendingPsychologistCount > 0) ...[
                   _PendingAlert(
-                    count: pendingPsychs.length,
+                    count: _pendingPsychologistCount,
                     label: 'Therapists awaiting approval',
                     icon: Icons.psychology_rounded,
                     color: AppColors.warning,
@@ -173,9 +329,9 @@ class AdminDashboardPage extends StatelessWidget {
                   ),
                   const SizedBox(height: AppDimensions.paddingS),
                 ],
-                if (pendingBlogs.isNotEmpty) ...[
+                if (_pendingBlogCount > 0) ...[
                   _PendingAlert(
-                    count: pendingBlogs.length,
+                    count: _pendingBlogCount,
                     label: 'Blog posts awaiting review',
                     icon: Icons.article_rounded,
                     color: const Color(0xFF30B0C7),
@@ -183,7 +339,7 @@ class AdminDashboardPage extends StatelessWidget {
                   ),
                   const SizedBox(height: AppDimensions.paddingM),
                 ],
-                if (pendingPsychs.isEmpty && pendingBlogs.isEmpty)
+                if (_pendingPsychologistCount == 0 && _pendingBlogCount == 0)
                   const SizedBox(height: AppDimensions.paddingS),
 
                 // Revenue Chart
@@ -204,7 +360,7 @@ class AdminDashboardPage extends StatelessWidget {
                                       color: AppColors.textSecondary),
                                 ),
                                 Text(
-                                  '₹${((metrics['revenueThisMonth'] as double) / 1000).toStringAsFixed(1)}K',
+                                  '₹${(revenueThisMonth / 1000).toStringAsFixed(1)}K',
                                   style: const TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.bold,
@@ -259,11 +415,11 @@ class AdminDashboardPage extends StatelessWidget {
                                   showTitles: true,
                                   getTitlesWidget: (v, _) {
                                     final idx = v.toInt();
-                                    if (idx < 0 || idx >= revenue.length) {
+                                    if (idx < 0 || idx >= revenuePoints.length) {
                                       return const SizedBox.shrink();
                                     }
                                     return Text(
-                                      revenue[idx]['day'] as String? ?? '',
+                                      revenuePoints[idx]['day'] as String? ?? '',
                                       style: AppTextStyles.caption2.copyWith(
                                           color: AppColors.textSecondary),
                                     );
@@ -281,12 +437,13 @@ class AdminDashboardPage extends StatelessWidget {
                             borderData: FlBorderData(show: false),
                             lineBarsData: [
                               LineChartBarData(
-                                spots: revenue
+                                spots: revenuePoints
                                     .asMap()
                                     .entries
                                     .map((e) => FlSpot(
                                           e.key.toDouble(),
-                                          (e.value['amount'] as num).toDouble(),
+                                      (revenuePoints[e.key]['amount'] as num)
+                                        .toDouble(),
                                         ))
                                     .toList(),
                                 isCurved: true,
@@ -371,7 +528,7 @@ class AdminDashboardPage extends StatelessWidget {
                           height: 1, color: AppColors.surfaceSecondary),
                       _ActivityRow(
                           label: 'Sessions Today',
-                          value: '${metrics['sessionsToday']}',
+                          value: '$sessionsToday',
                           change: '+12',
                           up: true),
                       const Divider(
@@ -411,35 +568,40 @@ class AdminDashboardPage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: AppDimensions.paddingS),
-                ...MockData.adminUsers.take(3).map(
+                ..._recentPsychologists.map(
                       (u) => AppCard(
                         margin: const EdgeInsets.only(
                             bottom: AppDimensions.paddingS),
                         child: Row(
                           children: [
                             AppAvatar(
-                              imageUrl: u.avatarUrl,
+                              imageUrl: (u['avatarUrl'] ??
+                                      u['avatar'] ??
+                                      u['profilePicture'])
+                                  ?.toString(),
                               radius: 20,
-                              initials: u.name[0],
+                              initials: ((u['name'] ?? 'U').toString()[0]),
                             ),
                             const SizedBox(width: AppDimensions.paddingM),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(u.name,
+                                  Text((u['name'] ?? 'Psychologist').toString(),
                                       style: AppTextStyles.subheadline
                                           .copyWith(
                                               fontWeight: FontWeight.w600)),
-                                  Text(u.email,
+                                  Text((u['email'] ?? '-').toString(),
                                       style: AppTextStyles.caption1.copyWith(
                                           color: AppColors.textSecondary)),
                                 ],
                               ),
                             ),
                             _StatusPill(
-                              label: u.isActive ? 'Active' : 'Suspended',
-                              color: u.isActive
+                              label: _readBool(u, ['isActive', 'active'], fallback: true)
+                                  ? 'Active'
+                                  : 'Suspended',
+                              color: _readBool(u, ['isActive', 'active'], fallback: true)
                                   ? AppColors.success
                                   : AppColors.error,
                             ),

@@ -3,9 +3,11 @@ import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../user/blog/data/models/blog_models.dart';
+import '../../../../user/blog/data/repositories/blog_repository.dart';
 
 class PsychBlogPage extends StatefulWidget {
   const PsychBlogPage({super.key});
@@ -15,12 +17,26 @@ class PsychBlogPage extends StatefulWidget {
 }
 
 class _PsychBlogPageState extends State<PsychBlogPage> {
+  late final BlogRepository _blogRepository;
+
   bool _showForm = false;
+  bool _loading = true;
+  bool _submitting = false;
+  String? _errorMessage;
+  List<BlogEntity> _blogs = const <BlogEntity>[];
+
   final _titleCtrl = TextEditingController();
   final _contentCtrl = TextEditingController();
   String _selectedCategory = 'Mindfulness';
 
   static const _categories = ['Mindfulness', 'Anxiety', 'Depression', 'Relationships', 'Burnout', 'Sleep'];
+
+  @override
+  void initState() {
+    super.initState();
+    _blogRepository = sl<BlogRepository>();
+    _loadBlogs();
+  }
 
   @override
   void dispose() {
@@ -29,11 +45,98 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
     super.dispose();
   }
 
+  Future<void> _loadBlogs() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await _blogRepository.listMyBlogs(page: 1, limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _blogs = response.map((item) => item.toEntity()).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      });
+    } catch (e) {
+      debugPrint('[MindZep] PsychBlog load error: $e');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Unable to load blogs right now.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _createBlog({required bool submitForReview}) async {
+    final title = _titleCtrl.text.trim();
+    final body = _contentCtrl.text.trim();
+
+    if (title.isEmpty || body.isEmpty) {
+      AppSnackbar.show(
+        context,
+        message: 'Please enter title and content.',
+        type: SnackbarType.error,
+      );
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+    });
+
+    try {
+      final created = await _blogRepository.createBlog(
+        CreateBlogRequest(
+          title: title,
+          body: body,
+          category: _selectedCategory,
+        ),
+      );
+
+      if (submitForReview) {
+        await _blogRepository.submitBlog(created.id);
+      }
+
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: submitForReview ? 'Submitted for review' : 'Saved as draft',
+        type: SnackbarType.success,
+      );
+      setState(() {
+        _showForm = false;
+        _titleCtrl.clear();
+        _contentCtrl.clear();
+      });
+      await _loadBlogs();
+    } catch (_) {
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: 'Unable to save blog right now.',
+        type: SnackbarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final blogs = MockData.blogs.where((b) => b.psychologistId == 'p001').toList();
+    final blogs = _blogs;
     final published = blogs.where((b) => b.status == BlogStatus.published).length;
-    final totalViews = blogs.fold<int>(0, (sum, b) => sum + (b.viewCount ?? 0));
+    final totalViews = blogs.fold<int>(0, (sum, b) => sum + b.viewCount);
+    final totalComments = blogs.fold<int>(0, (sum, b) => sum + b.commentCount);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
@@ -91,7 +194,7 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
                         const SizedBox(width: 8),
                         _BlogStat(label: 'Total Views', value: totalViews > 1000 ? '${(totalViews / 1000).toStringAsFixed(1)}K' : '$totalViews'),
                         const SizedBox(width: 8),
-                        _BlogStat(label: 'Total Likes', value: '${published * 18}'),
+                        _BlogStat(label: 'Comments', value: '$totalComments'),
                       ],
                     ),
                   ],
@@ -188,11 +291,7 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
                     children: [
                       Expanded(
                         child: GestureDetector(
-                          onTap: () {
-                            AppSnackbar.show(context, message: 'Saved as draft', type: SnackbarType.success);
-                            setState(() => _showForm = false);
-                            _titleCtrl.clear(); _contentCtrl.clear();
-                          },
+                          onTap: _submitting ? null : () => _createBlog(submitForReview: false),
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
@@ -206,11 +305,7 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: GestureDetector(
-                          onTap: () {
-                            AppSnackbar.show(context, message: 'Submitted for review', type: SnackbarType.success);
-                            setState(() => _showForm = false);
-                            _titleCtrl.clear(); _contentCtrl.clear();
-                          },
+                          onTap: _submitting ? null : () => _createBlog(submitForReview: true),
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
@@ -229,7 +324,30 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
 
           // ── Blog List ──────────────────────────────────────────────
           Expanded(
-            child: blogs.isEmpty
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Color(0xFF8E8E93)),
+                              ),
+                              const SizedBox(height: 10),
+                              ElevatedButton(
+                                onPressed: _loadBlogs,
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : blogs.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -250,7 +368,12 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
                     padding: const EdgeInsets.all(16),
                     itemCount: blogs.length,
                     itemBuilder: (ctx, i) => GestureDetector(
-                      onTap: () => ctx.push(RouteNames.psychBlogDetail, extra: blogs[i]),
+                      onTap: () async {
+                        final changed = await ctx.push(RouteNames.psychBlogDetail, extra: blogs[i]);
+                        if (changed == true && mounted) {
+                          _loadBlogs();
+                        }
+                      },
                       child: _BlogCard(blog: blogs[i]),
                     ),
                   ),

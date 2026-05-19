@@ -3,11 +3,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/entities/entities.dart';
+import '../../../../../core/widgets/app_avatar.dart';
 import '../../../../../core/widgets/app_card.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../auth/data/models/auth_models.dart';
+import '../../../../auth/data/repositories/auth_repository.dart';
 import '../../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../../auth/presentation/bloc/auth_event.dart';
+import '../../../data/models/psychologist_models.dart';
+import '../../../data/repositories/psychologist_repository.dart';
 
 class PsychProfilePage extends StatefulWidget {
   const PsychProfilePage({super.key});
@@ -17,9 +23,83 @@ class PsychProfilePage extends StatefulWidget {
 }
 
 class _PsychProfilePageState extends State<PsychProfilePage> {
+  late final PsychologistRepository _psychologistRepository;
+  late final AuthRepository _authRepository;
+
+  bool _loading = true;
+  PsychologistEntity? _psychologist;
+  List<PsychologistDocumentModel> _documents = const <PsychologistDocumentModel>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _psychologistRepository = sl<PsychologistRepository>();
+    _authRepository = sl<AuthRepository>();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    setState(() {
+      _loading = true;
+    });
+
+    // Load profile and documents independently so partial data still shows
+    try {
+      final profile = await _psychologistRepository.getMyProfile();
+      if (!mounted) return;
+      setState(() {
+        _psychologist = profile.toEntity();
+      });
+    } catch (e) {
+      debugPrint('[MindZep] PsychProfile profile error: $e');
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: e.toString(),
+        type: SnackbarType.error,
+      );
+    }
+
+    try {
+      final documents = await _psychologistRepository.listMyDocuments();
+      if (!mounted) return;
+      setState(() {
+        _documents = documents..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      });
+    } catch (e) {
+      debugPrint('[MindZep] PsychProfile documents error: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final psych = MockData.psychologists.first;
+    final psych = _psychologist ??
+        PsychologistEntity(
+          id: 'me',
+          name: 'Psychologist',
+          credentials: '-',
+          specialization: 'General',
+          specializations: const <String>['General'],
+          languages: const <String>['English'],
+          yearsExperience: 0,
+          ratingAverage: 0,
+          totalReviews: 0,
+          totalSessions: 0,
+          ratePerMinute: 0,
+          freeMinutes: 2,
+          status: AvailabilityStatus.offline,
+          avatarUrl: null,
+          bio: null,
+          isApproved: true,
+          isActive: true,
+          createdAt: DateTime.now(),
+        );
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -45,6 +125,11 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                   child: Column(
                     children: [
+                        if (_loading)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: LinearProgressIndicator(minHeight: 2),
+                          ),
                       // Top row: title + edit
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -54,7 +139,7 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
                             style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                           ),
                           GestureDetector(
-                            onTap: () => _showEditProfileSheet(context, psych),
+                            onTap: _loading ? null : () => _showEditProfileSheet(context, psych),
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                               decoration: BoxDecoration(
@@ -76,11 +161,10 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
                           color: Colors.white.withOpacity(0.2),
                         ),
                         child: ClipOval(
-                          child: Center(
-                            child: Text(
-                              _initials(psych.name),
-                              style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold),
-                            ),
+                          child: AppAvatar(
+                            imageUrl: psych.avatarUrl,
+                            radius: 40,
+                            initials: _initials(psych.name),
                           ),
                         ),
                       ),
@@ -168,6 +252,88 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: AppDimensions.paddingS),
+                  AppCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Documents',
+                              style: AppTextStyles.headline
+                                  .copyWith(color: AppColors.textPrimary),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F8FB),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${_documents.length}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF30B0C7),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppDimensions.paddingS),
+                        if (_documents.isEmpty)
+                          Text(
+                            'No uploaded documents found.',
+                            style: AppTextStyles.body.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                          )
+                        else
+                          ..._documents.take(3).map(
+                                (doc) => Padding(
+                                  padding: const EdgeInsets.only(bottom: AppDimensions.paddingXS),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.description_outlined,
+                                        size: 16,
+                                        color: Color(0xFF30B0C7),
+                                      ),
+                                      const SizedBox(width: AppDimensions.paddingS),
+                                      Expanded(
+                                        child: Text(
+                                          doc.documentType ?? 'Document',
+                                          style: AppTextStyles.subheadline.copyWith(
+                                            color: AppColors.textPrimary,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${doc.createdAt.day}/${doc.createdAt.month}/${doc.createdAt.year}',
+                                        style: AppTextStyles.caption1.copyWith(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                        if (_documents.length > 3)
+                          Padding(
+                            padding: const EdgeInsets.only(top: AppDimensions.paddingXS),
+                            child: Text(
+                              '+${_documents.length - 3} more documents',
+                              style: AppTextStyles.caption1.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: AppDimensions.paddingM),
                   // Actions menu
                   AppCard(
@@ -177,14 +343,14 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
                           icon: Icons.edit_outlined,
                           label: 'Edit Profile',
                           iconColor: const Color(0xFF30B0C7),
-                          onTap: () => _showEditProfileSheet(context, psych),
+                          onTap: _loading ? () {} : () => _showEditProfileSheet(context, psych),
                         ),
                         const Divider(height: 1, indent: 48),
                         _MenuItem(
                           icon: Icons.lock_outline_rounded,
                           label: 'Change Password',
                           iconColor: const Color(0xFF30B0C7),
-                          onTap: () => _showChangePasswordDialog(context),
+                          onTap: _showChangePasswordDialog,
                         ),
                         const Divider(height: 1, indent: 48),
                         _MenuItem(
@@ -240,9 +406,12 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
     return name[0].toUpperCase();
   }
 
-  void _showEditProfileSheet(BuildContext context, dynamic psych) {
-    final nameCtrl = TextEditingController(text: psych.name);
+  void _showEditProfileSheet(BuildContext context, PsychologistEntity psych) {
     final bioCtrl = TextEditingController(text: psych.bio ?? '');
+    final rateCtrl = TextEditingController(text: psych.ratePerMinute.toStringAsFixed(0));
+    final languagesCtrl = TextEditingController(text: psych.languages.join(', '));
+    final specializationsCtrl = TextEditingController(text: psych.specializations.join(', '));
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -263,16 +432,9 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
               const SizedBox(height: 20),
               const Text('Edit Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
               const SizedBox(height: 20),
-              const Text('Display Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8E8E93))),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(color: const Color(0xFFF2F2F7), borderRadius: BorderRadius.circular(14)),
-                child: TextField(
-                  controller: nameCtrl,
-                  style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
-                  decoration: const InputDecoration(border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
-                ),
+              Text(
+                psych.name,
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1C1C1E)),
               ),
               const SizedBox(height: 14),
               const Text('Bio', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8E8E93))),
@@ -287,13 +449,97 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
                   decoration: const InputDecoration(hintText: 'Tell patients about yourself...', hintStyle: TextStyle(color: Color(0xFFC7C7CC)), border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
                 ),
               ),
+              const SizedBox(height: 14),
+              const Text('Rate Per Minute', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8E8E93))),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(color: const Color(0xFFF2F2F7), borderRadius: BorderRadius.circular(14)),
+                child: TextField(
+                  controller: rateCtrl,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
+                  decoration: const InputDecoration(border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Languages (comma separated)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8E8E93))),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(color: const Color(0xFFF2F2F7), borderRadius: BorderRadius.circular(14)),
+                child: TextField(
+                  controller: languagesCtrl,
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
+                  decoration: const InputDecoration(border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text('Specializations (comma separated)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8E8E93))),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(color: const Color(0xFFF2F2F7), borderRadius: BorderRadius.circular(14)),
+                child: TextField(
+                  controller: specializationsCtrl,
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF1C1C1E)),
+                  decoration: const InputDecoration(border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+                ),
+              ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: GestureDetector(
-                  onTap: () {
-                    Navigator.pop(context);
-                    AppSnackbar.show(context, message: 'Profile updated successfully!', type: SnackbarType.success);
+                  onTap: () async {
+                    final rateValue = double.tryParse(rateCtrl.text.trim());
+                    if (rateValue == null || rateValue <= 0) {
+                      AppSnackbar.show(
+                        context,
+                        message: 'Enter a valid rate per minute.',
+                        type: SnackbarType.error,
+                      );
+                      return;
+                    }
+
+                    final languages = languagesCtrl.text
+                        .split(',')
+                        .map((item) => item.trim())
+                        .where((item) => item.isNotEmpty)
+                        .toList();
+                    final specializations = specializationsCtrl.text
+                        .split(',')
+                        .map((item) => item.trim())
+                        .where((item) => item.isNotEmpty)
+                        .toList();
+
+                    try {
+                      final updated = await _psychologistRepository.updateMyProfile(
+                        PsychologistUpdateRequest(
+                          bio: bioCtrl.text.trim(),
+                          ratePerMinute: rateValue,
+                          languages: languages,
+                          specializations: specializations,
+                        ),
+                      );
+
+                      if (!mounted) return;
+                      setState(() {
+                        _psychologist = updated.toEntity();
+                      });
+                      Navigator.pop(context);
+                      AppSnackbar.show(
+                        context,
+                        message: 'Profile updated successfully!',
+                        type: SnackbarType.success,
+                      );
+                    } catch (_) {
+                      if (!mounted) return;
+                      AppSnackbar.show(
+                        context,
+                        message: 'Unable to update profile right now.',
+                        type: SnackbarType.error,
+                      );
+                    }
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -313,10 +559,11 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
     );
   }
 
-  void _showChangePasswordDialog(BuildContext context) {
+  void _showChangePasswordDialog() {
     final currentCtrl = TextEditingController();
     final newCtrl = TextEditingController();
     final confirmCtrl = TextEditingController();
+
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -335,9 +582,53 @@ class _PsychProfilePageState extends State<PsychProfilePage> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: Color(0xFF8E8E93)))),
           GestureDetector(
-            onTap: () {
-              Navigator.pop(context);
-              AppSnackbar.show(context, message: 'Password changed successfully!', type: SnackbarType.success);
+            onTap: () async {
+              final current = currentCtrl.text;
+              final next = newCtrl.text;
+              final confirm = confirmCtrl.text;
+
+              if (current.isEmpty || next.isEmpty || confirm.isEmpty) {
+                AppSnackbar.show(
+                  context,
+                  message: 'Please fill all password fields.',
+                  type: SnackbarType.error,
+                );
+                return;
+              }
+
+              if (next != confirm) {
+                AppSnackbar.show(
+                  context,
+                  message: 'New password and confirm password must match.',
+                  type: SnackbarType.error,
+                );
+                return;
+              }
+
+              try {
+                await _authRepository.changePassword(
+                  ChangePasswordRequest(
+                    currentPassword: current,
+                    newPassword: next,
+                    confirmPassword: confirm,
+                  ),
+                );
+
+                if (!mounted) return;
+                Navigator.pop(context);
+                AppSnackbar.show(
+                  context,
+                  message: 'Password changed successfully!',
+                  type: SnackbarType.success,
+                );
+              } catch (_) {
+                if (!mounted) return;
+                AppSnackbar.show(
+                  context,
+                  message: 'Unable to change password right now.',
+                  type: SnackbarType.error,
+                );
+              }
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),

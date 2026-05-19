@@ -27,10 +27,18 @@ class AuthUnauthenticated extends AuthState {
 }
 
 class AuthOtpSent extends AuthState {
-  final String email;
-  const AuthOtpSent(this.email);
+  final String identifier;
+  final String purpose;
+
+  const AuthOtpSent({
+    required this.identifier,
+    required this.purpose,
+  });
+
+  String get email => identifier;
+
   @override
-  List<Object?> get props => [email];
+  List<Object?> get props => [identifier, purpose];
 }
 
 class AuthOtpVerified extends AuthState {
@@ -39,6 +47,14 @@ class AuthOtpVerified extends AuthState {
 
 class AuthPasswordResetSuccess extends AuthState {
   const AuthPasswordResetSuccess();
+}
+
+class AuthOperationSuccess extends AuthState {
+  final String message;
+  const AuthOperationSuccess(this.message);
+
+  @override
+  List<Object?> get props => [message];
 }
 
 class AuthError extends AuthState {

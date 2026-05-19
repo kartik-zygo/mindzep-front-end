@@ -1,31 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
-import '../../../../../core/entities/entities.dart';
 import '../../../../../core/router/route_names.dart';
-import '../../../../../core/utils/currency_utils.dart';
 import '../../../../../core/widgets/app_avatar.dart';
 import '../bloc/call_bloc.dart';
+import '../models/call_route_payload.dart';
 
 class ActiveCallScreen extends StatelessWidget {
-  final PsychologistEntity psychologist;
+  final CallRoutePayload payload;
 
-  const ActiveCallScreen({super.key, required this.psychologist});
+  const ActiveCallScreen({super.key, required this.payload});
 
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<CallBloc, CallState>(
       listener: (context, state) {
-        if (state is CallEnded) {
-          context.pushReplacement(RouteNames.callSummary, extra: state);
+        if (state is WalletExhausted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Your wallet balance ran out. The call has ended.'),
+                backgroundColor: Colors.redAccent,
+                duration: Duration(seconds: 4),
+              ),
+            );
+            context.go(RouteNames.userWallet);
+          });
+        } else if (state is CallEnded) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!context.mounted) return;
+            context.pushReplacement(RouteNames.callSummary, extra: state);
+          });
         }
       },
       builder: (context, state) {
         if (state is CallConnecting) {
           return _buildConnecting(context, state);
+        } else if (state is CallErrorState) {
+          return _buildError(context, state);
         } else if (state is CallActive) {
           return _buildActive(context, state);
         }
@@ -34,6 +51,50 @@ class ActiveCallScreen extends StatelessWidget {
           body: Center(child: CircularProgressIndicator()),
         );
       },
+    );
+  }
+
+  Widget _buildError(BuildContext context, CallErrorState state) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF1A1A2E),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppDimensions.paddingXL),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  color: AppColors.error,
+                  size: 56,
+                ),
+                const SizedBox(height: AppDimensions.paddingL),
+                Text(
+                  'Unable to start call',
+                  style: AppTextStyles.title2.copyWith(color: Colors.white),
+                ),
+                const SizedBox(height: AppDimensions.paddingS),
+                Text(
+                  state.message,
+                  style: AppTextStyles.body.copyWith(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: AppDimensions.paddingXL),
+                TextButton.icon(
+                  onPressed: () => context.pop(),
+                  icon:
+                      const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                  label: Text(
+                    'Go Back',
+                    style: AppTextStyles.body.copyWith(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -46,9 +107,9 @@ class ActiveCallScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               AppAvatar(
-                imageUrl: psychologist.avatarUrl,
+                imageUrl: payload.psychologistAvatar,
                 radius: 56,
-                initials: _initials(psychologist.name),
+                initials: _initials(payload.psychologistName),
               ),
               const SizedBox(height: AppDimensions.paddingL),
               Text(state.psychologistName,
@@ -76,93 +137,86 @@ class ActiveCallScreen extends StatelessWidget {
   }
 
   Widget _buildActive(BuildContext context, CallActive state) {
+    final engine = context.read<CallBloc>().agoraCallEngine.rtcEngine;
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A2E),
       body: SafeArea(
         child: Column(
           children: [
-            // Top: avatar + name + timer + billing
-            const Spacer(),
-            Center(
-              child: Column(
+            const SizedBox(height: AppDimensions.paddingM),
+            Text(
+              state.psychologistName,
+              style: AppTextStyles.title2.copyWith(color: Colors.white),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatDuration(state.elapsedSeconds),
+              style: AppTextStyles.title3
+                  .copyWith(color: AppColors.primary, fontFamily: 'monospace'),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: state.isFreePhase
+                    ? AppColors.success.withOpacity(0.2)
+                    : AppColors.warning.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  AppAvatar(
-                    imageUrl: psychologist.avatarUrl,
-                    radius: 64,
-                    initials: _initials(psychologist.name),
+                  Icon(
+                    state.isFreePhase
+                        ? Icons.free_cancellation_rounded
+                        : Icons.currency_rupee_rounded,
+                    size: 12,
+                    color:
+                        state.isFreePhase ? AppColors.success : AppColors.warning,
                   ),
-                  const SizedBox(height: AppDimensions.paddingL),
-                  Text(state.psychologistName,
-                      style:
-                          AppTextStyles.title2.copyWith(color: Colors.white)),
-                  const SizedBox(height: 4),
+                  const SizedBox(width: 4),
                   Text(
-                    _formatDuration(state.elapsedSeconds),
-                    style: AppTextStyles.title3.copyWith(
-                        color: AppColors.primary,
-                        fontFamily: 'monospace'),
-                  ),
-                  const SizedBox(height: 8),
-                  // Billing indicator
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: state.isFreePhase
-                          ? AppColors.success.withOpacity(0.2)
-                          : AppColors.warning.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(
-                          AppDimensions.radiusFull),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          state.isFreePhase
-                              ? Icons.free_cancellation_rounded
-                              : Icons.currency_rupee_rounded,
-                          size: 12,
-                          color: state.isFreePhase
-                              ? AppColors.success
-                              : AppColors.warning,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          state.isFreePhase
-                              ? 'Free period (${120 - state.elapsedSeconds}s left)'
-                              : '₹${state.chargeAmount.toStringAsFixed(2)} charged',
-                          style: AppTextStyles.caption1.copyWith(
-                            color: state.isFreePhase
-                                ? AppColors.success
-                                : AppColors.warning,
-                          ),
-                        ),
-                      ],
+                    state.isFreePhase
+                        ? 'Free period (${(120 - state.elapsedSeconds).clamp(0, 120)}s left)'
+                        : '₹${state.chargeAmount.toStringAsFixed(2)} charged',
+                    style: AppTextStyles.caption1.copyWith(
+                      color:
+                          state.isFreePhase ? AppColors.success : AppColors.warning,
                     ),
                   ),
-                  // Video placeholder
-                  if (!state.isVideoOff) ...[
-                    const SizedBox(height: AppDimensions.paddingL),
-                    Container(
-                      width: 200,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        borderRadius:
-                            BorderRadius.circular(AppDimensions.radiusL),
-                        border: Border.all(
-                            color: Colors.white.withOpacity(0.1)),
-                      ),
-                      child: const Center(
-                        child: Text('Mock Video Feed',
-                            style: TextStyle(color: Colors.white38)),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
-            const Spacer(),
+            const SizedBox(height: AppDimensions.paddingM),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppDimensions.paddingL),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppDimensions.radiusL),
+                        child: _buildRemoteView(state, engine),
+                      ),
+                    ),
+                    if (!state.isVideoOff)
+                      Positioned(
+                        right: 12,
+                        top: 12,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SizedBox(
+                            width: 120,
+                            height: 160,
+                            child: _buildLocalView(engine),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
             // Controls
             Padding(
               padding: const EdgeInsets.all(AppDimensions.paddingXL),
@@ -209,6 +263,59 @@ class ActiveCallScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildRemoteView(CallActive state, RtcEngine? engine) {
+    if (engine == null || state.isVideoOff || state.remoteUid == null) {
+      return Container(
+        color: Colors.white.withOpacity(0.05),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppAvatar(
+                imageUrl: payload.psychologistAvatar,
+                radius: 48,
+                initials: _initials(payload.psychologistName),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                state.remoteUid == null
+                    ? 'Waiting for therapist to join...'
+                    : 'Remote video unavailable',
+                style: AppTextStyles.body.copyWith(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return AgoraVideoView(
+      controller: VideoViewController.remote(
+        rtcEngine: engine,
+        canvas: VideoCanvas(uid: state.remoteUid),
+        connection: RtcConnection(channelId: state.channelName),
+      ),
+    );
+  }
+
+  Widget _buildLocalView(RtcEngine? engine) {
+    if (engine == null) {
+      return Container(
+        color: Colors.black54,
+        child: const Center(
+          child: Icon(Icons.videocam_off_rounded, color: Colors.white70),
+        ),
+      );
+    }
+
+    return AgoraVideoView(
+      controller: VideoViewController(
+        rtcEngine: engine,
+        canvas: const VideoCanvas(uid: 0),
       ),
     );
   }

@@ -4,10 +4,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/date_utils.dart';
 import '../../../../../core/widgets/app_avatar.dart';
+import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../user/appointments/data/repositories/appointment_repository.dart';
+import '../../../../user/blog/data/models/blog_models.dart';
+import '../../../../user/blog/data/repositories/blog_repository.dart';
+import '../../../../user/data/models/user_models.dart';
+import '../../../../user/data/repositories/user_repository.dart';
 import '../bloc/psychologist_list_bloc.dart';
 import '../bloc/psychologist_list_event_state.dart';
 import '../../../../../core/widgets/app_drawer.dart';
@@ -23,6 +30,16 @@ class UserHomePage extends StatefulWidget {
 
 class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderStateMixin {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  late final UserRepository _userRepository;
+  late final AppointmentRepository _appointmentRepository;
+  late final BlogRepository _blogRepository;
+
+  UserProfileModel? _profile;
+  WalletSummaryModel? _wallet;
+  List<AppointmentEntity> _appointments = const <AppointmentEntity>[];
+  List<BlogEntity> _blogs = const <BlogEntity>[];
+  bool _loadingDashboard = true;
+
   late AnimationController _broadcastCtrl;
   late Animation<double> _ring1, _ring2, _ring3;
 
@@ -37,11 +54,64 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
   @override
   void initState() {
     super.initState();
+    _userRepository = sl<UserRepository>();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _blogRepository = sl<BlogRepository>();
+
     _broadcastCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 2500))..repeat();
     _ring1 = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _broadcastCtrl, curve: const Interval(0, 0.7, curve: Curves.easeOut)));
     _ring2 = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _broadcastCtrl, curve: const Interval(0.2, 0.9, curve: Curves.easeOut)));
     _ring3 = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _broadcastCtrl, curve: const Interval(0.4, 1.0, curve: Curves.easeOut)));
     context.read<PsychologistListBloc>().add(const LoadPsychologists());
+    _loadDashboardData();
+  }
+
+  Future<void> _loadDashboardData() async {
+    setState(() {
+      _loadingDashboard = true;
+    });
+
+    UserProfileModel? profile;
+    WalletSummaryModel? wallet;
+    dynamic appointmentsResponse;
+    List<BlogModel>? blogs;
+
+    try {
+      profile = await _userRepository.getMe();
+    } catch (_) {}
+
+    try {
+      wallet = await _userRepository.getMyWallet();
+    } catch (_) {}
+
+    try {
+      appointmentsResponse = await _appointmentRepository.listAppointments(page: 1, limit: 100);
+    } catch (_) {}
+
+    try {
+      blogs = await _blogRepository.listPublishedBlogs(page: 1, limit: 20);
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    final mappedAppointments = appointmentsResponse?.items
+            .map<AppointmentEntity>((item) => item.toEntity())
+            .toList() ??
+        <AppointmentEntity>[];
+
+    final mappedBlogs = blogs
+            ?.map<BlogEntity>((item) => item.toEntity())
+            .where((blog) => blog.status == BlogStatus.published)
+            .toList() ??
+        <BlogEntity>[];
+
+    setState(() {
+      if (profile != null) _profile = profile;
+      if (wallet != null) _wallet = wallet;
+      _appointments = mappedAppointments;
+      _blogs = mappedBlogs;
+      _loadingDashboard = false;
+    });
   }
 
   @override
@@ -52,17 +122,38 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
 
   @override
   Widget build(BuildContext context) {
-    final user = MockData.currentUser;
+    final userName = _profile?.name ?? 'User';
+    final avatarUrl = _profile?.avatarUrl;
+    final upcomingCount = _appointments
+        .where((appointment) => appointment.status == AppointmentStatus.upcoming)
+        .length;
+    final completedCount = _appointments
+        .where((appointment) => appointment.status == AppointmentStatus.completed)
+        .length;
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: const Color(0xFFF2F2F7),
       drawer: const AppUserDrawer(),
       body: CustomScrollView(
         slivers: [
-          _buildGradientHeader(context, user),
+          _buildGradientHeader(
+            context,
+            userName: userName,
+            avatarUrl: avatarUrl,
+            walletBalance: _wallet?.balance ?? 0,
+          ),
+          if (_loadingDashboard)
+            const SliverToBoxAdapter(
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
           _buildMoodSection(),
           _buildQuickActions(context),
-          _buildStatsRow(),
+          _buildStatsRow(
+            totalSessions: _appointments.length,
+            upcomingSessions: upcomingCount,
+            completedSessions: completedCount,
+          ),
           _buildBroadcastBanner(context),
           _buildTopTherapistsSection(context),
           _buildBlogSection(context),
@@ -75,7 +166,15 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
 
   // ── Gradient Header ──────────────────────────────────────────────────────
 
-  Widget _buildGradientHeader(BuildContext context, user) {
+  Widget _buildGradientHeader(
+    BuildContext context, {
+    required String userName,
+    String? avatarUrl,
+    required double walletBalance,
+  }) {
+    final trimmedName = userName.trim().isEmpty ? 'User' : userName;
+    final firstName = trimmedName.split(' ').first;
+
     return SliverToBoxAdapter(
       child: Container(
         decoration: const BoxDecoration(
@@ -109,11 +208,11 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            AppDateUtils.greeting(user.name.split(' ').first),
+                            AppDateUtils.greeting(firstName),
                             style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 13, fontWeight: FontWeight.w500),
                           ),
                           Text(
-                            user.name,
+                            trimmedName,
                             style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: -0.3),
                           ),
                         ],
@@ -136,7 +235,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
                         ),
-                        child: AppAvatar(imageUrl: user.avatarUrl, radius: 20, initials: _initials(user.name)),
+                        child: AppAvatar(imageUrl: avatarUrl, radius: 20, initials: _initials(trimmedName)),
                       ),
                     ),
                   ],
@@ -150,7 +249,10 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 14),
                       const SizedBox(width: 6),
-                      const Text('₹415', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text(
+                        '₹${walletBalance.toStringAsFixed(0)}',
+                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
                       const SizedBox(width: 4),
                       const Icon(Icons.chevron_right_rounded, color: Color(0xB3FFFFFF), size: 16),
                     ]),
@@ -255,17 +357,21 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
 
   // ── Stats Row ──────────────────────────────────────────────────────────────
 
-  Widget _buildStatsRow() {
+  Widget _buildStatsRow({
+    required int totalSessions,
+    required int upcomingSessions,
+    required int completedSessions,
+  }) {
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
         child: Row(
           children: [
-            _StatBadge(value: '12', label: 'Sessions', icon: Icons.access_time_rounded, color: AppColors.primary),
+            _StatBadge(value: '$totalSessions', label: 'Sessions', icon: Icons.access_time_rounded, color: AppColors.primary),
             const SizedBox(width: 10),
-            _StatBadge(value: '7d', label: 'Streak', icon: Icons.trending_up_rounded, color: const Color(0xFFFF9500)),
+            _StatBadge(value: '$upcomingSessions', label: 'Upcoming', icon: Icons.trending_up_rounded, color: const Color(0xFFFF9500)),
             const SizedBox(width: 10),
-            _StatBadge(value: '100%', label: 'Trust', icon: Icons.shield_rounded, color: const Color(0xFF34C759)),
+            _StatBadge(value: '$completedSessions', label: 'Done', icon: Icons.shield_rounded, color: const Color(0xFF34C759)),
           ],
         ),
       ),
@@ -275,10 +381,13 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
   // ── Broadcast Call Banner ──────────────────────────────────────────────────
 
   Widget _buildBroadcastBanner(BuildContext context) {
-    final available = MockData.psychologists
-        .where((p) => p.status == AvailabilityStatus.available)
+    final blocState = context.watch<PsychologistListBloc>().state;
+    final available = blocState is PsychologistListLoaded
+      ? blocState.filtered
+        .where((psychologist) => psychologist.status == AvailabilityStatus.available)
         .take(3)
-        .toList();
+        .toList()
+      : const <PsychologistEntity>[];
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
@@ -389,10 +498,18 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
   // ── Top Therapists ─────────────────────────────────────────────────────────
 
   Widget _buildTopTherapistsSection(BuildContext context) {
-    final top = MockData.psychologists
-        .where((p) => p.status == AvailabilityStatus.available)
-        .take(3)
-        .toList();
+    final blocState = context.watch<PsychologistListBloc>().state;
+    final top = blocState is PsychologistListLoaded
+        ? (() {
+            final items = List<PsychologistEntity>.from(blocState.all);
+            items.sort((a, b) {
+              final ratingCompare = b.ratingAverage.compareTo(a.ratingAverage);
+              if (ratingCompare != 0) return ratingCompare;
+              return b.totalReviews.compareTo(a.totalReviews);
+            });
+            return items.take(3).toList();
+          })()
+        : const <PsychologistEntity>[];
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
@@ -435,7 +552,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(children: [
-                            AppAvatar(imageUrl: p.avatarUrl, radius: 22, initials: p.name[0]),
+                            AppAvatar(imageUrl: p.avatarUrl, radius: 22, initials: _initials(p.name)),
                             const SizedBox(width: 8),
                             Expanded(child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -444,14 +561,37 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   margin: const EdgeInsets.only(top: 3),
-                                  decoration: BoxDecoration(color: const Color(0xFFE8FFF1), borderRadius: BorderRadius.circular(8)),
-                                  child: const Text('Available', style: TextStyle(fontSize: 9, color: Color(0xFF34C759), fontWeight: FontWeight.w600)),
+                                  decoration: BoxDecoration(
+                                    color: p.status == AvailabilityStatus.available
+                                        ? const Color(0xFFE8FFF1)
+                                        : const Color(0xFFF2F2F7),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    p.status == AvailabilityStatus.available
+                                        ? 'Available'
+                                        : 'Offline',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: p.status == AvailabilityStatus.available
+                                          ? const Color(0xFF34C759)
+                                          : const Color(0xFF8E8E93),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
                               ],
                             )),
                           ]),
                           const SizedBox(height: 8),
-                          Text(p.specializations.first, style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          Text(
+                            p.specializations.isNotEmpty
+                                ? p.specializations.first
+                                : p.specialization,
+                            style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           const SizedBox(height: 6),
                           Row(children: [
                             const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFF9500)),
@@ -476,7 +616,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
   // ── Blog Section ───────────────────────────────────────────────────────────
 
   Widget _buildBlogSection(BuildContext context) {
-    final blogs = MockData.blogs.where((b) => b.status == BlogStatus.published).toList();
+    final blogs = _blogs;
     if (blogs.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
     final featured = blogs.first;
     final rest = blogs.skip(1).toList();

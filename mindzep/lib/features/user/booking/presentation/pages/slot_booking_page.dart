@@ -4,14 +4,15 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/date_utils.dart';
 import '../../../../../core/utils/currency_utils.dart';
 import '../../../../../core/widgets/app_avatar.dart';
 import '../../../../../core/widgets/app_button.dart';
 import '../../../../../core/widgets/app_card.dart';
-import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../psychologist/data/repositories/psychologist_repository.dart';
 
 class SlotBookingPage extends StatefulWidget {
   final PsychologistEntity psychologist;
@@ -23,22 +24,79 @@ class SlotBookingPage extends StatefulWidget {
 }
 
 class _SlotBookingPageState extends State<SlotBookingPage> {
+  late final PsychologistRepository _psychologistRepository;
+
   late DateTime _selectedDate;
   SlotEntity? _selectedSlot;
   String _sessionType = 'video'; // video | audio
+  bool _isLoadingSlots = true;
+  String? _slotErrorMessage;
+  List<SlotEntity> _availableSlots = const <SlotEntity>[];
 
   @override
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
+    _psychologistRepository = sl<PsychologistRepository>();
+    _loadSlots();
   }
 
   List<DateTime> get _dates => AppDateUtils.next30Days();
 
-  List<SlotEntity> get _slots =>
-      MockData.getSlotsForPsychologist(widget.psychologist.id, _selectedDate);
-
   PsychologistEntity get p => widget.psychologist;
+
+  Future<void> _loadSlots() async {
+    setState(() {
+      _isLoadingSlots = true;
+      _slotErrorMessage = null;
+    });
+
+    try {
+      final models = await _psychologistRepository.getPublicSlotsByPsychologist(
+        widget.psychologist.id,
+        date: _formatApiDate(_selectedDate),
+      );
+
+      final selectedSession =
+          _sessionType == 'audio' ? SessionType.audio : SessionType.video;
+
+      final mapped = models
+          .map((model) => model.toEntity())
+          .where((slot) => slot.status == SlotStatus.available)
+          .where((slot) => slot.sessionTypes.contains(selectedSession))
+          .toList()
+        ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+      if (!mounted) return;
+      setState(() {
+        _availableSlots = mapped;
+        if (_selectedSlot != null &&
+            !_availableSlots.any((slot) => slot.id == _selectedSlot!.id)) {
+          _selectedSlot = null;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _slotErrorMessage = error is ApiErrorModel
+            ? error.message
+            : 'Unable to load slots for this day.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingSlots = false;
+        });
+      }
+    }
+  }
+
+  String _formatApiDate(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -119,14 +177,28 @@ class _SlotBookingPageState extends State<SlotBookingPage> {
                 label: 'Video Call',
                 icon: Icons.videocam_rounded,
                 isSelected: _sessionType == 'video',
-                onTap: () => setState(() => _sessionType = 'video'),
+                onTap: () {
+                  if (_sessionType == 'video') return;
+                  setState(() {
+                    _sessionType = 'video';
+                    _selectedSlot = null;
+                  });
+                  _loadSlots();
+                },
               ),
               const SizedBox(width: AppDimensions.paddingM),
               _SessionTypeCard(
                 label: 'Audio Call',
                 icon: Icons.phone_rounded,
                 isSelected: _sessionType == 'audio',
-                onTap: () => setState(() => _sessionType = 'audio'),
+                onTap: () {
+                  if (_sessionType == 'audio') return;
+                  setState(() {
+                    _sessionType = 'audio';
+                    _selectedSlot = null;
+                  });
+                  _loadSlots();
+                },
               ),
             ],
           ),
@@ -158,11 +230,14 @@ class _SlotBookingPageState extends State<SlotBookingPage> {
               final isSelected =
                   AppDateUtils.isSameDay(date, _selectedDate);
               return GestureDetector(
-                onTap: () =>
-                    setState(() {
-                      _selectedDate = date;
-                      _selectedSlot = null;
-                    }),
+                onTap: () {
+                  if (AppDateUtils.isSameDay(date, _selectedDate)) return;
+                  setState(() {
+                    _selectedDate = date;
+                    _selectedSlot = null;
+                  });
+                  _loadSlots();
+                },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   width: 52,
@@ -216,7 +291,46 @@ class _SlotBookingPageState extends State<SlotBookingPage> {
   }
 
   Widget _buildSlotGrid() {
-    final slots = _slots;
+    if (_isLoadingSlots) {
+      return const Padding(
+        padding: EdgeInsets.all(AppDimensions.paddingM),
+        child: SizedBox(
+          height: 120,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    if (_slotErrorMessage != null) {
+      return Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingM),
+        child: Container(
+          padding: const EdgeInsets.all(AppDimensions.paddingM),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _slotErrorMessage!,
+                style: AppTextStyles.footnote
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: AppDimensions.paddingS),
+              TextButton(
+                onPressed: _loadSlots,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final slots = _availableSlots;
     return Padding(
       padding: const EdgeInsets.all(AppDimensions.paddingM),
       child: Column(
@@ -226,6 +340,22 @@ class _SlotBookingPageState extends State<SlotBookingPage> {
               style: AppTextStyles.headline
                   .copyWith(color: AppColors.textPrimary)),
           const SizedBox(height: AppDimensions.paddingS),
+          if (slots.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppDimensions.paddingM),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                'No available $_sessionType slots on this date.',
+                style: AppTextStyles.footnote
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+            )
+          else
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),

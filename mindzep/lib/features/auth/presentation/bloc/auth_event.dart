@@ -36,7 +36,11 @@ class RegisterRequested extends AuthEvent {
 }
 
 class GoogleSignInRequested extends AuthEvent {
-  const GoogleSignInRequested();
+  final String idToken;
+  const GoogleSignInRequested({this.idToken = ''});
+
+  @override
+  List<Object?> get props => [idToken];
 }
 
 class LogoutRequested extends AuthEvent {
@@ -51,13 +55,70 @@ class ForgotPasswordRequested extends AuthEvent {
 }
 
 class OtpVerified extends AuthEvent {
+  final String identifier;
   final String otp;
-  const OtpVerified({required this.otp});
+  final String purpose;
+
+  const OtpVerified({
+    required this.identifier,
+    required this.otp,
+    required this.purpose,
+  });
+
   @override
-  List<Object?> get props => [otp];
+  List<Object?> get props => [identifier, otp, purpose];
+}
+
+class ResendOtpRequested extends AuthEvent {
+  final String identifier;
+  final String purpose;
+
+  const ResendOtpRequested({
+    required this.identifier,
+    required this.purpose,
+  });
+
+  @override
+  List<Object?> get props => [identifier, purpose];
 }
 
 class PasswordResetRequested extends AuthEvent {
+  final String identifier;
+  final String otp;
   final String newPassword;
-  const PasswordResetRequested({required this.newPassword});
+  final String confirmPassword;
+
+  const PasswordResetRequested({
+    required this.identifier,
+    required this.otp,
+    required this.newPassword,
+    required this.confirmPassword,
+  });
+
+  @override
+  List<Object?> get props => [identifier, otp, newPassword, confirmPassword];
+}
+
+class ChangePasswordRequested extends AuthEvent {
+  final String currentPassword;
+  final String newPassword;
+  final String confirmPassword;
+
+  const ChangePasswordRequested({
+    required this.currentPassword,
+    required this.newPassword,
+    required this.confirmPassword,
+  });
+
+  @override
+  List<Object?> get props => [currentPassword, newPassword, confirmPassword];
+}
+
+class UpdateFcmTokenRequested extends AuthEvent {
+  final String fcmToken;
+
+  const UpdateFcmTokenRequested({required this.fcmToken});
+
+  @override
+  List<Object?> get props => [fcmToken];
 }

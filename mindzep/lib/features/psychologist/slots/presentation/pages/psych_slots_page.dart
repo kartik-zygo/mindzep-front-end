@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/widgets/app_avatar.dart';
+import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../data/models/psychologist_models.dart';
+import '../../../data/repositories/psychologist_repository.dart';
 
 class PsychSlotsPage extends StatefulWidget {
   const PsychSlotsPage({super.key});
@@ -11,24 +16,170 @@ class PsychSlotsPage extends StatefulWidget {
 }
 
 class _PsychSlotsPageState extends State<PsychSlotsPage> {
+  late final PsychologistRepository _psychologistRepository;
   late DateTime _selectedDay;
   bool _isOnline = true;
+  bool _loading = true;
+  String? _errorMessage;
+  final Set<String> _updatingSlotIds = <String>{};
+  List<SlotEntity> _allSlots = const <SlotEntity>[];
 
   // Generate 7-day strip starting from today
-  
   late final List<DateTime> _weekDays;
 
   @override
   void initState() {
     super.initState();
+    _psychologistRepository = sl<PsychologistRepository>();
     final today = DateTime.now();
     _selectedDay = today;
     _weekDays = List.generate(7, (i) => today.add(Duration(days: i)));
+    _loadSlots();
+  }
+
+  Future<void> _loadSlots() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      // Keep this request conservative to avoid backend-side limit validation failures.
+      final response = await _psychologistRepository.getMySlots(page: 1, limit: 100);
+
+      var isOnline = _isOnline;
+      try {
+        final profile = await _psychologistRepository.getMyProfile();
+        isOnline = profile.status == AvailabilityStatus.available;
+      } catch (e) {
+        // Slots should still render even if profile status endpoint fails.
+        debugPrint('[MindZep] PsychSlots profile fetch error (non-fatal): $e');
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _isOnline = isOnline;
+        _allSlots = response.items.map((item) => item.toEntity()).toList();
+      });
+    } catch (error) {
+      debugPrint('[MindZep] PsychSlots load error: $error');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = _slotsLoadErrorMessage(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  List<SlotEntity> _slotsForDay(DateTime day) {
+    return _allSlots.where((slot) {
+      return slot.startTime.year == day.year &&
+          slot.startTime.month == day.month &&
+          slot.startTime.day == day.day;
+    }).toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+  }
+
+  Future<void> _setSlotBlockedState({
+    required SlotEntity slot,
+    required bool blocked,
+  }) async {
+    setState(() {
+      _updatingSlotIds.add(slot.id);
+    });
+
+    try {
+      await _psychologistRepository.bulkSlotAction(
+        SlotBulkActionRequest(
+          action: blocked ? 'block' : 'unblock',
+          slotIds: <String>[slot.id],
+        ),
+      );
+      await _loadSlots();
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: blocked ? 'Slot blocked.' : 'Slot unblocked.',
+        type: SnackbarType.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: 'Unable to update slot status.',
+        type: SnackbarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingSlotIds.remove(slot.id);
+        });
+      }
+    }
+  }
+
+  Future<void> _deleteSlot(SlotEntity slot) async {
+    setState(() {
+      _updatingSlotIds.add(slot.id);
+    });
+
+    try {
+      await _psychologistRepository.deleteSlot(slot.id);
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: 'Slot deleted successfully.',
+        type: SnackbarType.success,
+      );
+      await _loadSlots();
+    } catch (_) {
+      if (!mounted) return;
+      AppSnackbar.show(
+        context,
+        message: 'Unable to delete slot.',
+        type: SnackbarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _updatingSlotIds.remove(slot.id);
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleAvailability() async {
+    final next = !_isOnline;
+    setState(() {
+      _isOnline = next;
+    });
+
+    try {
+      await _psychologistRepository.updateAvailability(
+        AvailabilityUpdateRequest(status: next ? 'available' : 'offline'),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isOnline = !next;
+      });
+      AppSnackbar.show(
+        context,
+        message: 'Unable to update online status.',
+        type: SnackbarType.error,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final slots = MockData.getSlotsForPsychologist('p001', _selectedDay);
+    final slots = _slotsForDay(_selectedDay);
     final available = slots.where((s) => s.status == SlotStatus.available).length;
     final booked = slots.where((s) => s.status == SlotStatus.booked).length;
 
@@ -71,7 +222,7 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
                         ),
                         const SizedBox(width: 8),
                         GestureDetector(
-                          onTap: () => setState(() => _isOnline = !_isOnline),
+                          onTap: _toggleAvailability,
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
                             width: 48, height: 26,
@@ -106,7 +257,7 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
                           final d = _weekDays[i];
                           final isSel = d.day == _selectedDay.day &&
                               d.month == _selectedDay.month;
-                          final daySlots = MockData.getSlotsForPsychologist('p001', d);
+                          final daySlots = _slotsForDay(d);
                           final hasSlots = daySlots.isNotEmpty;
                           return GestureDetector(
                             onTap: () => setState(() => _selectedDay = d),
@@ -162,94 +313,135 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
 
           // ── Body ──────────────────────────────────────────────────
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Summary card
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 2))],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 44, height: 44,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE6F8FA),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(Icons.calendar_month_rounded, color: Color(0xFF30B0C7), size: 22),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                _fullDayLabel(_selectedDay),
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E)),
+                                _errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Color(0xFF8E8E93)),
                               ),
-                              Text(
-                                '${slots.length} slots · $available available · $booked booked',
-                                style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
+                              const SizedBox(height: 12),
+                              ElevatedButton(
+                                onPressed: _loadSlots,
+                                child: const Text('Retry'),
                               ),
                             ],
                           ),
                         ),
-                        GestureDetector(
-                          onTap: () => _showAddSlotDialog(context),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)],
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _loadSlots,
+                        child: SingleChildScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Summary card
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(18),
+                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 2))],
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 44, height: 44,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFE6F8FA),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: const Icon(Icons.calendar_month_rounded, color: Color(0xFF30B0C7), size: 22),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _fullDayLabel(_selectedDay),
+                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E)),
+                                          ),
+                                          Text(
+                                            '${slots.length} slots · $available available · $booked booked',
+                                            style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () => _showAddSlotDialog(context),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: const Text('+ Add', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text('+ Add', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                              const SizedBox(height: 16),
+
+                              if (slots.isEmpty)
+                                Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 48),
+                                    child: Column(
+                                      children: [
+                                        Container(
+                                          width: 60, height: 60,
+                                          decoration: const BoxDecoration(color: Color(0xFFE6F8FA), shape: BoxShape.circle),
+                                          child: const Icon(Icons.event_available_rounded, color: Color(0xFF30B0C7), size: 28),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        const Text('No slots for this day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF3C3C3C))),
+                                        const SizedBox(height: 4),
+                                        const Text('Tap "+ Add" to add availability', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              else ...[
+                                const Text(
+                                  'AVAILABLE SLOTS',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF8E8E93), letterSpacing: 0.8),
+                                ),
+                                const SizedBox(height: 10),
+                                ...slots.map(
+                                  (slot) => _SlotTile(
+                                    slot: slot,
+                                    busy: _updatingSlotIds.contains(slot.id),
+                                    onToggleBlocked: slot.status == SlotStatus.booked
+                                        ? null
+                                        : (blocked) => _setSlotBlockedState(
+                                              slot: slot,
+                                              blocked: blocked,
+                                            ),
+                                    onDelete: slot.status == SlotStatus.booked
+                                        ? null
+                                        : () => _deleteSlot(slot),
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 80),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  if (slots.isEmpty)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 48),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 60, height: 60,
-                              decoration: const BoxDecoration(color: Color(0xFFE6F8FA), shape: BoxShape.circle),
-                              child: const Icon(Icons.event_available_rounded, color: Color(0xFF30B0C7), size: 28),
-                            ),
-                            const SizedBox(height: 12),
-                            const Text('No slots for this day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF3C3C3C))),
-                            const SizedBox(height: 4),
-                            const Text('Tap "+ Add" to add availability', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-                          ],
-                        ),
                       ),
-                    )
-                  else ...[
-                    const Text(
-                      'AVAILABLE SLOTS',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF8E8E93), letterSpacing: 0.8),
-                    ),
-                    const SizedBox(height: 10),
-                    ...slots.map((slot) => _SlotTile(slot: slot)),
-                  ],
-                  const SizedBox(height: 80),
-                ],
-              ),
-            ),
           ),
         ],
       ),
@@ -266,47 +458,169 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
     return '${_dayAbbr(d)}, ${months[d.month - 1]} ${d.day}';
   }
 
-  void _showAddSlotDialog(BuildContext context) {
-    showDialog(
+  String _slotsLoadErrorMessage(Object error) {
+    if (error is ApiErrorModel) {
+      final msg = error.message.trim();
+      if (msg.isNotEmpty) {
+        return msg;
+      }
+    }
+    return 'Unable to load slots right now.';
+  }
+
+  Future<void> _showAddSlotDialog(BuildContext context) async {
+    // Default to 1 hour from now when the selected day is today,
+    // otherwise default to 09:00 on future days.
+    final now = DateTime.now();
+    final isToday = _selectedDay.year == now.year &&
+        _selectedDay.month == now.month &&
+        _selectedDay.day == now.day;
+    final defaultTime = isToday
+        ? TimeOfDay.fromDateTime(now.add(const Duration(hours: 1)))
+        : const TimeOfDay(hour: 9, minute: 0);
+
+    TimeOfDay selectedTime = defaultTime;
+    final durationCtrl = TextEditingController(text: '45');
+    bool isSubmitting = false;
+
+    await showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Add Slot'),
-        content: const Text('Slot management coming soon. You will be able to add/block slots from here.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: Color(0xFF30B0C7))),
-          ),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: const Text('Add Slot'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showTimePicker(
+                      context: dialogContext,
+                      initialTime: selectedTime,
+                    );
+                    if (picked == null) return;
+                    setDialogState(() {
+                      selectedTime = picked;
+                    });
+                  },
+                  icon: const Icon(Icons.access_time_rounded),
+                  label: Text('Time: ${selectedTime.format(dialogContext)}'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: durationCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Duration (minutes)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final duration = int.tryParse(durationCtrl.text.trim());
+                        if (duration == null || duration <= 0) {
+                          AppSnackbar.show(
+                            this.context,
+                            message: 'Enter a valid duration.',
+                            type: SnackbarType.error,
+                          );
+                          return;
+                        }
+
+                        final startTime = DateTime(
+                          _selectedDay.year,
+                          _selectedDay.month,
+                          _selectedDay.day,
+                          selectedTime.hour,
+                          selectedTime.minute,
+                        );
+
+                        // Backend requires startTime to be strictly in the future.
+                        if (!startTime.isAfter(DateTime.now())) {
+                          AppSnackbar.show(
+                            this.context,
+                            message: 'Slot time must be in the future. Please select a later time.',
+                            type: SnackbarType.error,
+                          );
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isSubmitting = true;
+                        });
+
+                        try {
+                          await _psychologistRepository.createSlot(
+                            SlotCreateRequest(
+                              startTime: startTime,
+                              durationMinutes: duration,
+                              sessionTypes: const <String>['video'],
+                            ),
+                          );
+                          if (!mounted) return;
+                          Navigator.pop(dialogContext);
+                          AppSnackbar.show(
+                            this.context,
+                            message: 'Slot added successfully.',
+                            type: SnackbarType.success,
+                          );
+                          await _loadSlots();
+                        } catch (e) {
+                          debugPrint('[MindZep] PsychSlots createSlot error: $e');
+                          if (!mounted) return;
+                          final msg = e is ApiErrorModel ? e.message : 'Unable to add slot right now.';
+                          AppSnackbar.show(
+                            this.context,
+                            message: msg,
+                            type: SnackbarType.error,
+                          );
+                          setDialogState(() {
+                            isSubmitting = false;
+                          });
+                        }
+                      },
+                child: const Text('Add Slot'),
+              ),
+            ],
+          );
+        },
       ),
     );
+
+    durationCtrl.dispose();
   }
 }
 
-class _SlotTile extends StatefulWidget {
+class _SlotTile extends StatelessWidget {
   final SlotEntity slot;
-  const _SlotTile({required this.slot});
+  final bool busy;
+  final ValueChanged<bool>? onToggleBlocked;
+  final VoidCallback? onDelete;
 
-  @override
-  State<_SlotTile> createState() => _SlotTileState();
-}
-
-class _SlotTileState extends State<_SlotTile> {
-  late SlotStatus _status;
-
-  @override
-  void initState() {
-    super.initState();
-    _status = widget.slot.status;
-  }
+  const _SlotTile({
+    required this.slot,
+    required this.busy,
+    required this.onToggleBlocked,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
     Color statusColor;
     String statusLabel;
     Color bgColor;
-    switch (_status) {
+    switch (slot.status) {
       case SlotStatus.available:
         statusColor = const Color(0xFF34C759);
         bgColor = const Color(0xFFE8FFF1);
@@ -350,7 +664,7 @@ class _SlotTileState extends State<_SlotTile> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${widget.slot.startTime.hour.toString().padLeft(2, '0')}:${widget.slot.startTime.minute.toString().padLeft(2, '0')} · ${widget.slot.durationMinutes} min',
+                  '${slot.startTime.hour.toString().padLeft(2, '0')}:${slot.startTime.minute.toString().padLeft(2, '0')} · ${slot.durationMinutes} min',
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E)),
                 ),
                 const SizedBox(height: 2),
@@ -365,17 +679,23 @@ class _SlotTileState extends State<_SlotTile> {
               ],
             ),
           ),
-          if (_status == SlotStatus.available)
+          if (busy)
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else if (slot.status == SlotStatus.available)
             Switch(
               value: true,
-              onChanged: (v) => setState(() => _status = SlotStatus.blocked),
+              onChanged: (_) => onToggleBlocked?.call(true),
               activeColor: AppColors.primary,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             )
-          else if (_status == SlotStatus.blocked)
+          else if (slot.status == SlotStatus.blocked)
             Switch(
               value: false,
-              onChanged: (v) => setState(() => _status = SlotStatus.available),
+              onChanged: (_) => onToggleBlocked?.call(false),
               activeColor: AppColors.primary,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             )
@@ -385,6 +705,20 @@ class _SlotTileState extends State<_SlotTile> {
               decoration: BoxDecoration(color: const Color(0xFFE6F8FA), borderRadius: BorderRadius.circular(10)),
               child: const Icon(Icons.lock_rounded, color: Color(0xFF30B0C7), size: 16),
             ),
+          if (onDelete != null) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: onDelete,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF0F0),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF3B30), size: 16),
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -1,16 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../features/auth/domain/entities/user_entity.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
-import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/pages/forgot_password_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/onboarding_page.dart';
 import '../../features/auth/presentation/pages/register_page.dart';
 import '../../features/auth/presentation/pages/splash_page.dart';
+import '../../features/auth/presentation/pages/verify_otp_page.dart';
 import '../../features/user/home/presentation/bloc/psychologist_list_bloc.dart';
 import '../../features/user/home/presentation/pages/psychologist_detail_page.dart';
 import '../../features/user/home/presentation/pages/user_home_page.dart';
@@ -19,6 +20,7 @@ import '../../features/user/booking/presentation/pages/booking_confirmed_page.da
 import '../../features/user/booking/presentation/pages/payment_page.dart';
 import '../../features/user/booking/presentation/pages/slot_booking_page.dart';
 import '../../features/user/call/presentation/bloc/call_bloc.dart';
+import '../../features/user/call/presentation/models/call_route_payload.dart';
 import '../../features/user/call/presentation/pages/active_call_screen.dart';
 import '../../features/user/call/presentation/pages/post_call_summary_screen.dart';
 import '../../features/user/call/presentation/pages/pre_call_screen.dart';
@@ -42,12 +44,13 @@ import '../../features/admin/psychologists/presentation/pages/admin_psych_manage
 import '../../features/admin/settings/presentation/pages/admin_settings_page.dart';
 import '../../features/admin/users/presentation/pages/admin_user_management_page.dart';
 import '../../core/entities/entities.dart';
+import '../../injection/injection_container.dart';
 import 'route_names.dart';
 
-final appRouter = GoRouter(
+GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
   initialLocation: RouteNames.splash,
+  refreshListenable: _GoRouterAuthRefreshStream(authBloc.stream),
   redirect: (context, state) async {
-    final authBloc = context.read<AuthBloc>();
     final authState = authBloc.state;
     final location = state.matchedLocation;
 
@@ -56,21 +59,21 @@ final appRouter = GoRouter(
       RouteNames.onboarding,
       RouteNames.login,
       RouteNames.register,
+      RouteNames.verifyOtp,
       RouteNames.forgotPassword,
     ];
 
     final isPublic = publicRoutes.contains(location);
 
     if (authState is AuthAuthenticated) {
+      final roleHome = _homeForRole(authState.user.role);
+
       if (isPublic) {
-        switch (authState.user.role) {
-          case UserRole.user:
-            return RouteNames.userHome;
-          case UserRole.psychologist:
-            return RouteNames.psychDashboard;
-          case UserRole.admin:
-            return RouteNames.adminDashboard;
-        }
+        return roleHome;
+      }
+
+      if (_isRoleMismatch(authState.user.role, location)) {
+        return roleHome;
       }
     } else if (authState is AuthUnauthenticated) {
       if (!isPublic) return RouteNames.login;
@@ -96,6 +99,16 @@ final appRouter = GoRouter(
       builder: (_, __) => const RegisterPage(),
     ),
     GoRoute(
+      path: RouteNames.verifyOtp,
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>? ?? {};
+        return VerifyOtpPage(
+          identifier: (extra['identifier'] ?? '').toString(),
+          purpose: (extra['purpose'] ?? 'registration').toString(),
+        );
+      },
+    ),
+    GoRoute(
       path: RouteNames.forgotPassword,
       builder: (_, __) => const ForgotPasswordPage(),
     ),
@@ -110,7 +123,7 @@ final appRouter = GoRouter(
           GoRoute(
             path: RouteNames.userHome,
             builder: (_, __) => BlocProvider(
-              create: (_) => PsychologistListBloc(),
+              create: (_) => sl<PsychologistListBloc>(),
               child: const UserHomePage(),
             ),
           ),
@@ -120,7 +133,7 @@ final appRouter = GoRouter(
           GoRoute(
             path: RouteNames.userConsult,
             builder: (_, __) => BlocProvider(
-              create: (_) => PsychologistListBloc(),
+              create: (_) => sl<PsychologistListBloc>(),
               child: const ConsultPage(),
             ),
           ),
@@ -286,16 +299,65 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: RouteNames.preCall,
-      builder: (_, state) => BlocProvider(
-        create: (_) => CallBloc(),
-        child:
-            PreCallScreen(psychologist: state.extra as PsychologistEntity),
-      ),
+      builder: (_, state) {
+        final extra = state.extra;
+        late final CallRoutePayload payload;
+
+        if (extra is CallRoutePayload) {
+          payload = extra;
+        } else if (extra is PsychologistEntity) {
+          payload = CallRoutePayload.fromPsychologist(extra);
+        } else if (extra is AppointmentEntity) {
+          payload = CallRoutePayload.fromAppointment(extra);
+        } else if (extra is Map<String, dynamic>) {
+          final appointmentId = (extra['appointmentId'] ?? '').toString();
+          final preferredSessionType =
+              extra['sessionType'] is SessionType
+                  ? extra['sessionType'] as SessionType
+                  : SessionType.video;
+
+          final psychologist = extra['psychologist'];
+          final appointment = extra['appointment'];
+          if (appointment is AppointmentEntity) {
+            payload = CallRoutePayload.fromAppointment(appointment);
+          } else if (psychologist is PsychologistEntity) {
+            payload = CallRoutePayload.fromPsychologist(
+              psychologist,
+              appointmentId: appointmentId,
+              preferredSessionType: preferredSessionType,
+            );
+          } else {
+            throw ArgumentError('Invalid extra for pre-call route.');
+          }
+        } else {
+          throw ArgumentError('Invalid extra for pre-call route.');
+        }
+
+        return BlocProvider(
+          create: (_) => sl<CallBloc>(),
+          child: PreCallScreen(payload: payload),
+        );
+      },
     ),
     GoRoute(
       path: RouteNames.activeCall,
-      builder: (_, state) =>
-          ActiveCallScreen(psychologist: state.extra as PsychologistEntity),
+      builder: (_, state) {
+        final extra = state.extra;
+        if (extra is! Map<String, dynamic>) {
+          throw ArgumentError('Missing call route data for active call.');
+        }
+
+        final payload = extra['payload'];
+        final callBloc = extra['callBloc'];
+        if (payload is! CallRoutePayload || callBloc is! CallBloc) {
+          throw ArgumentError('Invalid call route data for active call.');
+        }
+
+        return BlocProvider.value(
+          value: callBloc,
+          child: ActiveCallScreen(payload: payload),
+        );
+      },
     ),
     GoRoute(
       path: RouteNames.callSummary,
@@ -304,6 +366,46 @@ final appRouter = GoRouter(
     ),
   ],
 );
+
+String _homeForRole(UserRole role) {
+  switch (role) {
+    case UserRole.user:
+      return RouteNames.userHome;
+    case UserRole.psychologist:
+      return RouteNames.psychDashboard;
+    case UserRole.admin:
+      return RouteNames.adminDashboard;
+  }
+}
+
+bool _isRoleMismatch(UserRole role, String location) {
+  final onUserPath = location.startsWith('/user/');
+  final onPsychPath = location.startsWith('/psych/');
+  final onAdminPath = location.startsWith('/admin/');
+
+  switch (role) {
+    case UserRole.user:
+      return onPsychPath || onAdminPath;
+    case UserRole.psychologist:
+      return onUserPath || onAdminPath;
+    case UserRole.admin:
+      return onUserPath || onPsychPath;
+  }
+}
+
+class _GoRouterAuthRefreshStream extends ChangeNotifier {
+  _GoRouterAuthRefreshStream(Stream<dynamic> stream) {
+    _subscription = stream.asBroadcastStream().listen((_) => notifyListeners());
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
 
 // ─── Shell Scaffolds ──────────────────────────────────────────────────────────
 

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../injection/injection_container.dart';
 import '../../../../../core/router/route_names.dart';
+import '../../../../../core/widgets/app_avatar.dart';
+import '../../../../psychologist/data/models/psychologist_models.dart';
+import '../../../../psychologist/data/repositories/psychologist_repository.dart';
+import '../../../../user/appointments/data/repositories/appointment_repository.dart';
 import '../../../../../core/widgets/app_drawer.dart';
 
 class PsychDashboardPage extends StatefulWidget {
@@ -13,13 +17,112 @@ class PsychDashboardPage extends StatefulWidget {
 }
 
 class _PsychDashboardPageState extends State<PsychDashboardPage> {
+  late final PsychologistRepository _psychologistRepository;
+  late final AppointmentRepository _appointmentRepository;
+
   bool _isOnline = true;
+  bool _loading = true;
+  String? _errorMessage;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  PsychologistEntity? _psychologist;
+  List<AppointmentEntity> _sessions = const <AppointmentEntity>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _psychologistRepository = sl<PsychologistRepository>();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _loadDashboard();
+  }
+
+  Future<void> _loadDashboard() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    final errors = <String>[];
+
+    // Load psychologist profile independently
+    try {
+      final psychModel = await _psychologistRepository.getMyProfile();
+      if (mounted) {
+        setState(() {
+          _psychologist = psychModel.toEntity();
+          _isOnline = _psychologist!.status == AvailabilityStatus.available;
+        });
+      }
+    } catch (e) {
+      debugPrint('[MindZep] PsychDashboard profile error: $e');
+      errors.add('Profile: $e');
+    }
+
+    // Load appointments independently — profile still shows if this fails
+    try {
+      final appointments = await _appointmentRepository.listAppointments(
+        page: 1,
+        limit: 100,
+      );
+      if (mounted) {
+        setState(() {
+          _sessions = appointments.items.map((item) => item.toEntity()).toList();
+        });
+      }
+    } catch (e) {
+      debugPrint('[MindZep] PsychDashboard appointments error: $e');
+      errors.add('Sessions: $e');
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _errorMessage = errors.isEmpty ? null : errors.join('\n');
+    });
+  }
+
+  Future<void> _toggleOnlineStatus() async {
+    final next = !_isOnline;
+    setState(() {
+      _isOnline = next;
+    });
+
+    try {
+      await _psychologistRepository.updateAvailability(
+        AvailabilityUpdateRequest(status: next ? 'available' : 'offline'),
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isOnline = !next;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final psych = MockData.psychologists.first;
-    final sessions = MockData.psychSessions;
+    final psych = _psychologist ??
+        PsychologistEntity(
+          id: 'me',
+          name: 'Psychologist',
+          credentials: '-',
+          specialization: 'General',
+          specializations: <String>['General'],
+          languages: <String>['English'],
+          yearsExperience: 0,
+          ratingAverage: 0,
+          totalReviews: 0,
+          totalSessions: 0,
+          ratePerMinute: 0,
+          freeMinutes: 2,
+          status: AvailabilityStatus.offline,
+          avatarUrl: null,
+          bio: null,
+          isApproved: true,
+          isActive: true,
+          createdAt: DateTime.now(),
+        );
+    final sessions = _sessions;
     final upcoming = sessions.where((s) => s.status == AppointmentStatus.upcoming).toList();
     final today = sessions.where((s) {
       final now = DateTime.now();
@@ -28,10 +131,16 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
           s.scheduledAt.day == now.day;
     }).toList();
 
-    // Weekly mock data
-    const weeklyData = [3.0, 5.0, 4.0, 7.0, 6.0, 5.0, 4.0];
+    final weeklyData = _buildWeeklyData(sessions);
     const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final totalWeekSessions = weeklyData.reduce((a, b) => a + b).toInt();
+    final previousWeekSessions = _countPreviousWeekSessions(sessions);
+    final growthPct = _computeWeekGrowth(
+      currentWeekSessions: totalWeekSessions,
+      previousWeekSessions: previousWeekSessions,
+    );
+    final isGrowthPositive = growthPct >= 0;
+    final todayMinutes = today.fold<int>(0, (sum, item) => sum + item.durationMinutes);
 
     return Scaffold(
       key: _scaffoldKey,
@@ -60,6 +169,11 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (_loading)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
                       // Top row: hamburger + greeting/name + notification bell + avatar
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -139,23 +253,19 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
                                 border: Border.all(color: Colors.white.withOpacity(0.6), width: 2),
-                                gradient: const LinearGradient(
-                                  colors: [Color(0xFF34C7A3), Color(0xFF30B0C7)],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
                               ),
                               child: ClipOval(
-                                child: Center(
-                                  child: Text(
-                                    psych.name.trim().split(' ').take(2)
-                                        .map((p) => p[0]).join().toUpperCase(),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                                child: AppAvatar(
+                                  imageUrl: psych.avatarUrl,
+                                  radius: 20,
+                                  initials: psych.name
+                                      .trim()
+                                      .split(' ')
+                                      .where((part) => part.isNotEmpty)
+                                      .take(2)
+                                      .map((part) => part[0])
+                                      .join()
+                                      .toUpperCase(),
                                 ),
                               ),
                             ),
@@ -163,12 +273,32 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                         ],
                       ),
                       const SizedBox(height: 24),
+                      if (_errorMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              _errorMessage!,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
                       // ── 4-stat row ──────────────────────────────────
                       Row(
                         children: [
                           _DashStat(
                             icon: Icons.calendar_today_rounded,
-                            value: '${today.isEmpty ? 4 : today.length}',
+                            value: '${today.length}',
                             label: 'Sessions\nToday',
                             color: const Color(0xFF7EEEDD),
                           ),
@@ -182,14 +312,14 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                           const SizedBox(width: 8),
                           _DashStat(
                             icon: Icons.favorite_rounded,
-                            value: '${psych.totalSessions ~/ 4}',
-                            label: 'Patient\nLikes',
+                            value: '${psych.totalReviews}',
+                            label: 'Total\nReviews',
                             color: const Color(0xFFFFB3C6),
                           ),
                           const SizedBox(width: 8),
                           _DashStat(
                             icon: Icons.access_time_rounded,
-                            value: '${(psych.totalSessions * 45 / 60 % 10).round()}h',
+                            value: _formatHours(todayMinutes),
                             label: 'Hours\nToday',
                             color: const Color(0xFFB8C8FF),
                           ),
@@ -260,15 +390,34 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFD4F5E9),
+                                color: isGrowthPositive
+                                    ? const Color(0xFFD4F5E9)
+                                    : const Color(0xFFFFE8EA),
                                 borderRadius: BorderRadius.circular(20),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.arrow_upward_rounded, size: 12, color: Color(0xFF1AAA6A)),
+                                  Icon(
+                                    isGrowthPositive
+                                        ? Icons.arrow_upward_rounded
+                                        : Icons.arrow_downward_rounded,
+                                    size: 12,
+                                    color: isGrowthPositive
+                                        ? const Color(0xFF1AAA6A)
+                                        : const Color(0xFFD93025),
+                                  ),
                                   SizedBox(width: 2),
-                                  Text('+12.5%', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF1AAA6A))),
+                                  Text(
+                                    '${isGrowthPositive ? '+' : ''}${growthPct.toStringAsFixed(1)}%',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: isGrowthPositive
+                                          ? const Color(0xFF1AAA6A)
+                                          : const Color(0xFFD93025),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -343,7 +492,7 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                           ),
                         ),
                         GestureDetector(
-                          onTap: () => setState(() => _isOnline = !_isOnline),
+                          onTap: _toggleOnlineStatus,
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                             decoration: BoxDecoration(
@@ -369,7 +518,7 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                   _SectionHeader(
                     title: 'Upcoming Sessions',
                     actionLabel: 'All >',
-                    onAction: () {},
+                    onAction: () => context.go(RouteNames.psychSessions),
                   ),
                   const SizedBox(height: 12),
                   if (upcoming.isEmpty)
@@ -391,8 +540,8 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                           iconColor: const Color(0xFF30B0C7),
                           bgColor: const Color(0xFFE8F8FB),
                           label: 'Total Sessions',
-                          value: '${sessions.length + 230}',
-                          badge: '+8 this week',
+                          value: '${psych.totalSessions > 0 ? psych.totalSessions : sessions.length}',
+                          badge: '$totalWeekSessions this week',
                           badgeColor: const Color(0xFF30B0C7),
                         ),
                       ),
@@ -404,7 +553,7 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                           bgColor: const Color(0xFFFFF8ED),
                           label: 'Avg Rating',
                           value: psych.ratingAverage.toStringAsFixed(1),
-                          badge: 'top 5%',
+                          badge: '${psych.totalReviews} reviews',
                           badgeColor: const Color(0xFFFF9500),
                         ),
                       ),
@@ -425,6 +574,65 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
     if (h < 12) return 'Good morning ☀️';
     if (h < 17) return 'Good afternoon 🌤️';
     return 'Good evening 🌙';
+  }
+
+  List<double> _buildWeeklyData(List<AppointmentEntity> sessions) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = today.subtract(Duration(days: today.weekday - 1));
+    final values = List<double>.filled(7, 0);
+
+    for (final session in sessions) {
+      final sessionDate = DateTime(
+        session.scheduledAt.year,
+        session.scheduledAt.month,
+        session.scheduledAt.day,
+      );
+      if (sessionDate.isBefore(monday) ||
+          sessionDate.isAfter(monday.add(const Duration(days: 6)))) {
+        continue;
+      }
+      final index = sessionDate.weekday - 1;
+      if (index >= 0 && index < 7) {
+        values[index] += 1;
+      }
+    }
+    return values;
+  }
+
+  int _countPreviousWeekSessions(List<AppointmentEntity> sessions) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final currentMonday = today.subtract(Duration(days: today.weekday - 1));
+    final previousMonday = currentMonday.subtract(const Duration(days: 7));
+    final previousSunday = previousMonday.add(const Duration(days: 6));
+
+    return sessions.where((session) {
+      final date = DateTime(
+        session.scheduledAt.year,
+        session.scheduledAt.month,
+        session.scheduledAt.day,
+      );
+      return !date.isBefore(previousMonday) && !date.isAfter(previousSunday);
+    }).length;
+  }
+
+  double _computeWeekGrowth({
+    required int currentWeekSessions,
+    required int previousWeekSessions,
+  }) {
+    if (previousWeekSessions == 0) {
+      return currentWeekSessions == 0 ? 0 : 100;
+    }
+    return ((currentWeekSessions - previousWeekSessions) / previousWeekSessions) * 100;
+  }
+
+  String _formatHours(int totalMinutes) {
+    final hours = totalMinutes / 60;
+    if (hours == hours.roundToDouble()) {
+      return '${hours.toStringAsFixed(0)}h';
+    }
+    return '${hours.toStringAsFixed(1)}h';
   }
 }
 
@@ -468,13 +676,13 @@ class _BarChartPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final max = data.reduce((a, b) => a > b ? a : b);
+    final max = data.fold<double>(0, (a, b) => a > b ? a : b);
     final count = data.length;
     final barWidth = size.width / count * 0.45;
     final gap = size.width / count;
 
     for (int i = 0; i < count; i++) {
-      final normalized = data[i] / max;
+      final normalized = max <= 0 ? 0 : data[i] / max;
       final barHeight = normalized * size.height;
       final x = gap * i + (gap - barWidth) / 2;
       final y = size.height - barHeight;
@@ -505,7 +713,7 @@ class _BarChartPainter extends CustomPainter {
       canvas.drawRRect(rRect, paint);
 
       // Highlight the tallest bar
-      if (data[i] == max) {
+      if (max > 0 && data[i] == max) {
         final dotPaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
         canvas.drawCircle(Offset(x + barWidth / 2, y + 5), 4, dotPaint);
       }
@@ -734,8 +942,11 @@ class _SessionCard extends StatelessWidget {
 
   String _formatDate(DateTime dt) {
     final now = DateTime.now();
-    if (dt.year == now.year && dt.month == now.month && dt.day == now.day) return 'Today';
-    if (dt.year == now.year && dt.month == now.month && dt.day == now.day + 1) return 'Tomorrow';
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(dt.year, dt.month, dt.day);
+    final diffDays = target.difference(today).inDays;
+    if (diffDays == 0) return 'Today';
+    if (diffDays == 1) return 'Tomorrow';
     return '${dt.day}/${dt.month}';
   }
 }
