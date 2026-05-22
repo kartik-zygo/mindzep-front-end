@@ -23,49 +23,87 @@ class CallRuntimeModel {
     required this.status,
   });
 
+  /// Normalises all the different shapes the backend can return into a single
+  /// flat map before reading individual fields.
+  ///
+  /// The Node/Sequelize backend may return raw ORM objects that look like:
+  ///   { "call": { "dataValues": { "_id": "...", "agoraChannel": "...", ... } } }
+  ///   { "dataValues": { ... } }
+  ///
+  /// Standard shape (plan spec):
+  ///   { "callId": "...", "channelName": "...", "agoraToken": "...", "uid": ... }
+  static Map<String, dynamic> _flatten(Map<String, dynamic> json) {
+    // Unwrap { call: { dataValues: {...} } }
+    final callRaw = json['call'];
+    if (callRaw is Map) {
+      final dv = callRaw['dataValues'];
+      if (dv is Map) return JsonReaders.asMap(dv);
+      return JsonReaders.asMap(callRaw);
+    }
+    // Unwrap { dataValues: {...} }
+    final dvRaw = json['dataValues'];
+    if (dvRaw is Map) return JsonReaders.asMap(dvRaw);
+    return json;
+  }
+
   factory CallRuntimeModel.fromJson(Map<String, dynamic> json) {
+    final flat = _flatten(json);
+
+    // Some backends nest Agora creds under 'agora' / 'rtc' / 'connection'.
     final agora = JsonReaders.asMap(
-      JsonReaders.readAny(json, ['agora', 'rtc', 'connection']),
+      JsonReaders.readAny(flat, ['agora', 'rtc', 'connection']),
     );
 
+    // Channel name: agora sub-map → agoraChannel (Sequelize) → standard keys
+    final channelName = _firstNonEmpty([
+      JsonReaders.readString(agora, ['channelName', 'channelId']),
+      JsonReaders.readString(flat, ['agoraChannel', 'channelName', 'channelId']),
+    ]);
+
+    // Token: agora sub-map → standard keys (connect endpoint has no token)
+    final token = _firstNonEmpty([
+      JsonReaders.readString(agora, ['token', 'agoraToken']),
+      JsonReaders.readString(flat, ['agoraToken', 'token']),
+    ]);
+
+    // UID: agora sub-map → agoraUid (Sequelize) → standard uid
+    final uid = () {
+      var v = JsonReaders.readInt(agora, ['uid']);
+      if (v != 0) return v;
+      v = JsonReaders.readInt(flat, ['agoraUid', 'uid']);
+      return v;
+    }();
+
+    // App ID: agora sub-map → standard keys
+    final rawAppId = _firstNonEmpty([
+      JsonReaders.readString(agora, ['appId', 'agoraAppId']),
+      JsonReaders.readString(flat, ['appId', 'agoraAppId']),
+    ]);
+
     return CallRuntimeModel(
-      callId: JsonReaders.readString(json, ['id', '_id', 'callId']),
-      appointmentId: JsonReaders.readString(
-        json,
-        ['appointmentId'],
-      ),
-      channelName: JsonReaders.readString(
-        agora,
-        ['channelName', 'channelId'],
-        fallback: JsonReaders.readString(json, ['channelName', 'channelId']),
-      ),
-      token: JsonReaders.readString(
-        agora,
-        ['token', 'agoraToken'],
-        fallback: JsonReaders.readString(json, ['token', 'agoraToken']),
-      ),
-      uid: JsonReaders.readInt(
-        agora,
-        ['uid'],
-        fallback: JsonReaders.readInt(json, ['uid']),
-      ),
+      callId: JsonReaders.readString(flat, ['_id', 'id', 'callId']),
+      appointmentId: JsonReaders.readString(flat, ['appointmentId']),
+      channelName: channelName,
+      token: token,
+      uid: uid,
       ratePerMinute: JsonReaders.readDouble(
-        json,
+        flat,
         ['ratePerMinute', 'pricingPerMinute'],
       ),
-      freeMinutes: JsonReaders.readInt(json, ['freeMinutes'], fallback: 2),
-      appId: JsonReaders.readString(
-        agora,
-        ['appId', 'agoraAppId'],
-      ).trim().isEmpty
-          ? JsonReaders.readString(json, ['appId', 'agoraAppId']).trim().isEmpty
-              ? null
-              : JsonReaders.readString(json, ['appId', 'agoraAppId'])
-          : JsonReaders.readString(agora, ['appId', 'agoraAppId']),
-      status: JsonReaders.readString(json, ['status']).trim().isEmpty
-          ? null
-          : JsonReaders.readString(json, ['status']),
+      freeMinutes: JsonReaders.readInt(flat, ['freeMinutes'], fallback: 2),
+      appId: rawAppId.isEmpty ? null : rawAppId,
+      status: () {
+        final s = JsonReaders.readString(flat, ['status']).trim();
+        return s.isEmpty ? null : s;
+      }(),
     );
+  }
+
+  static String _firstNonEmpty(List<String> values) {
+    for (final v in values) {
+      if (v.trim().isNotEmpty) return v.trim();
+    }
+    return '';
   }
 }
 

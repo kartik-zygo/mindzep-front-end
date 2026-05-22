@@ -61,6 +61,11 @@ class ApiEndpoints {
   static String callHeartbeat(String appointmentId) => '/calls/$appointmentId/heartbeat';
   static String callEnd(String appointmentId) => '/calls/$appointmentId/end';
   static String callDetails(String appointmentId) => '/calls/$appointmentId';
+  /// Psychologist-only: returns any currently pending incoming call.
+  static const String callPending = '/calls/pending';
+  /// Instant broadcast — no prior appointment needed.
+  static const String callBroadcastInstant = '/calls/broadcast-instant';
+  static const String callBroadcastInstantCancel = '/calls/broadcast-instant/cancel';
 
   // Chat
   static String chatMessages(String appointmentId) => '/chat/$appointmentId/messages';
@@ -89,6 +94,8 @@ class ApiEndpoints {
   static String adminPsychologistById(String id) => '/admin/psychologists/$id';
   static String adminPsychologistSuspend(String id) => '/admin/psychologists/$id/suspend';
   static String adminPsychologistActivate(String id) => '/admin/psychologists/$id/activate';
+  static const String adminUsers = '/admin/users';
+  static String adminUserById(String id) => '/admin/users/$id';
   static String adminUserSuspend(String id) => '/admin/users/$id/suspend';
   static String adminUserActivate(String id) => '/admin/users/$id/activate';
   static String adminCreditWallet(String id) => '/admin/users/$id/wallet/credit';
@@ -100,6 +107,8 @@ class ApiEndpoints {
   static const String notifications = '/notifications';
   static const String notificationsReadAll = '/notifications/read-all';
   static String notificationRead(String id) => '/notifications/$id/read';
+  static String notificationDelete(String id) => '/notifications/$id';
+  static const String notificationsClearAll = '/notifications/clear-all';
 
   // Public
   static String publicStaticContent(String type) => '/public/static-content/$type';

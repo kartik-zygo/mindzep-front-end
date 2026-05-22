@@ -1,6 +1,7 @@
 import '../../../../../core/network/api_endpoints.dart';
 import '../../../../../core/network/dio_client.dart';
 import '../../../../../core/utils/json_readers.dart';
+import '../models/broadcast_instant_model.dart';
 import '../models/call_models.dart';
 
 class CallRepository {
@@ -62,6 +63,25 @@ class CallRepository {
     return _dioClient.get<CallRuntimeModel>(
       ApiEndpoints.callDetails(appointmentId),
       parser: (json) => CallRuntimeModel.fromJson(JsonReaders.asMap(json)),
+    );
+  }
+
+  /// Initiates a no-appointment instant broadcast call.
+  /// Corresponds to `POST /calls/broadcast-instant`.
+  Future<BroadcastInstantModel> initiateInstantBroadcast() {
+    return _dioClient.post<BroadcastInstantModel>(
+      ApiEndpoints.callBroadcastInstant,
+      parser: (json) =>
+          BroadcastInstantModel.fromJson(JsonReaders.asMap(json)),
+    );
+  }
+
+  /// Cancels an in-progress instant broadcast before anyone accepts.
+  /// Corresponds to `POST /calls/broadcast-instant/cancel`.
+  Future<void> cancelInstantBroadcast() {
+    return _dioClient.post<void>(
+      ApiEndpoints.callBroadcastInstantCancel,
+      parser: (_) => null,
     );
   }
 }

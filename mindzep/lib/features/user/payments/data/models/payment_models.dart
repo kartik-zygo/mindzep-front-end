@@ -14,7 +14,7 @@ class CreateOrderRequest {
   Map<String, dynamic> toJson() {
     return {
       'type': type,
-      'amount': amount,
+      'order_amount': amount,
       if (appointmentId != null) 'appointmentId': appointmentId,
     };
   }
@@ -79,17 +79,18 @@ class CashfreeOrderModel {
 
 class VerifyPaymentRequest {
   final String cashfreeOrderId;
-  final String cfPaymentId;
+  final String? cfPaymentId;
 
   const VerifyPaymentRequest({
     required this.cashfreeOrderId,
-    required this.cfPaymentId,
+    this.cfPaymentId,
   });
 
   Map<String, dynamic> toJson() {
     return {
       'cashfreeOrderId': cashfreeOrderId,
-      'cfPaymentId': cfPaymentId,
+      if (cfPaymentId != null && cfPaymentId!.isNotEmpty)
+        'cfPaymentId': cfPaymentId,
     };
   }
 }

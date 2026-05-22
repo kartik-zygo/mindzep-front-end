@@ -27,12 +27,19 @@ import '../../features/user/call/presentation/pages/pre_call_screen.dart';
 import '../../features/user/profile/presentation/pages/user_profile_page.dart';
 import '../../features/user/consult/presentation/pages/consult_page.dart';
 import '../../features/user/wallet/presentation/pages/user_wallet_page.dart';
+import '../../features/user/broadcast/presentation/bloc/broadcast_bloc.dart';
 import '../../features/user/broadcast/presentation/pages/broadcast_call_page.dart';
 import '../../features/user/blog/presentation/pages/blog_list_page.dart';
 import '../../features/user/blog/presentation/pages/blog_detail_page.dart';
 import '../../features/user/notifications/presentation/pages/notifications_page.dart';
 import '../../features/psychologist/blog/presentation/pages/psych_blog_page.dart';
 import '../../features/psychologist/blog/presentation/pages/psych_blog_detail_page.dart';
+import '../../features/psychologist/call/data/models/incoming_call_data.dart';
+import '../../features/psychologist/call/data/repositories/psych_call_repository.dart';
+import '../../features/psychologist/call/data/socket/psych_call_socket_service.dart';
+import '../../features/psychologist/call/presentation/bloc/psych_call_bloc.dart';
+import '../../features/psychologist/call/presentation/pages/psych_incoming_call_screen.dart';
+import '../../features/psychologist/call/presentation/pages/psych_active_call_screen.dart';
 import '../../features/psychologist/dashboard/presentation/pages/psych_dashboard_page.dart';
 import '../../features/psychologist/profile/presentation/pages/psych_profile_page.dart';
 import '../../features/psychologist/sessions/presentation/pages/psych_sessions_page.dart';
@@ -247,7 +254,10 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
     // ─── Outside-shell routes ──────────────────────────────────────────────
     GoRoute(
       path: RouteNames.userBroadcast,
-      builder: (_, __) => const BroadcastCallPage(),
+      builder: (_, __) => BlocProvider(
+        create: (_) => sl<BroadcastCallBloc>(),
+        child: const BroadcastCallPage(),
+      ),
     ),
     GoRoute(
       path: RouteNames.userNotifications,
@@ -264,6 +274,25 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
     GoRoute(
       path: RouteNames.psychBlogDetail,
       builder: (_, state) => PsychBlogDetailPage(blog: state.extra as BlogEntity),
+    ),
+    GoRoute(
+      path: RouteNames.psychIncomingCall,
+      builder: (_, state) => PsychIncomingCallScreen(
+        callData: state.extra as IncomingCallData,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.psychActiveCall,
+      builder: (_, state) {
+        final extra = state.extra as Map<String, dynamic>;
+        return BlocProvider(
+          create: (_) => sl<PsychCallBloc>(),
+          child: PsychActiveCallScreen(
+            callData: extra['callData'] as IncomingCallData,
+            enableVideo: extra['enableVideo'] as bool? ?? true,
+          ),
+        );
+      },
     ),
     GoRoute(
       path: RouteNames.psychologistDetail,
@@ -512,9 +541,89 @@ class _UserBottomNav extends StatelessWidget {
   }
 }
 
-class PsychShell extends StatelessWidget {
+class PsychShell extends StatefulWidget {
   final StatefulNavigationShell navigationShell;
   const PsychShell({super.key, required this.navigationShell});
+
+  @override
+  State<PsychShell> createState() => _PsychShellState();
+}
+
+class _PsychShellState extends State<PsychShell> {
+  StreamSubscription<IncomingCallData>? _callSub;
+  Timer? _pollTimer;
+
+  /// Tracks the call ID (or appointment ID as fallback) of the call we have
+  /// already pushed to the incoming-call screen.  Prevents duplicate pushes
+  /// when both the socket event and the polling response carry the same call.
+  String? _activeCallKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _initCallSocket();
+  }
+
+  Future<void> _initCallSocket() async {
+    try {
+      final service = sl<PsychCallSocketService>();
+      await service.connect();
+      _callSub = service.onIncomingCall.listen(_onIncomingCall);
+      // Socket is live — start the HTTP-polling fallback.
+      _startPolling();
+    } catch (e) {
+      debugPrint('[PsychShell] Failed to connect call socket: $e');
+      // Retry after 5 seconds — handles transient startup network issues.
+      await Future.delayed(const Duration(seconds: 5));
+      if (mounted) _initCallSocket();
+    }
+  }
+
+  // ── HTTP polling ───────────────────────────────────────────────────────────
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    // Check immediately, then every 8 s.
+    _checkPendingCall();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _checkPendingCall(),
+    );
+  }
+
+  Future<void> _checkPendingCall() async {
+    if (!mounted) return;
+    try {
+      final incoming = await sl<PsychCallRepository>().fetchPendingCall();
+      if (!mounted) return;
+      if (incoming == null) {
+        // Nothing pending — reset so a future call can be shown.
+        _activeCallKey = null;
+        return;
+      }
+      _onIncomingCall(incoming);
+    } catch (_) {
+      // Polling errors are non-critical; silently ignore.
+    }
+  }
+
+  // ── Incoming call handler (shared by socket + polling) ────────────────────
+
+  void _onIncomingCall(IncomingCallData data) {
+    if (!mounted) return;
+    // Deduplicate: use callId if present, otherwise appointmentId.
+    final key = data.callId.isNotEmpty ? data.callId : data.appointmentId;
+    if (key.isNotEmpty && key == _activeCallKey) return;
+    _activeCallKey = key.isNotEmpty ? key : null;
+    context.push(RouteNames.psychIncomingCall, extra: data);
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _callSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -525,33 +634,33 @@ class PsychShell extends StatelessWidget {
         }
       },
       child: Scaffold(
-        body: navigationShell,
+        body: widget.navigationShell,
         bottomNavigationBar: NavigationBar(
-        selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: navigationShell.goBranch,
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard_rounded),
-              label: 'Dashboard'),
-          NavigationDestination(
-              icon: Icon(Icons.calendar_view_week_outlined),
-              selectedIcon: Icon(Icons.calendar_view_week_rounded),
-              label: 'Slots'),
-          NavigationDestination(
-              icon: Icon(Icons.video_call_outlined),
-              selectedIcon: Icon(Icons.video_call_rounded),
-              label: 'Sessions'),
-          NavigationDestination(
-              icon: Icon(Icons.article_outlined),
-              selectedIcon: Icon(Icons.article_rounded),
-              label: 'Blogs'),
-          NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: 'Profile'),
-        ],
-      ),
+          selectedIndex: widget.navigationShell.currentIndex,
+          onDestinationSelected: widget.navigationShell.goBranch,
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard_rounded),
+                label: 'Dashboard'),
+            NavigationDestination(
+                icon: Icon(Icons.calendar_view_week_outlined),
+                selectedIcon: Icon(Icons.calendar_view_week_rounded),
+                label: 'Slots'),
+            NavigationDestination(
+                icon: Icon(Icons.video_call_outlined),
+                selectedIcon: Icon(Icons.video_call_rounded),
+                label: 'Sessions'),
+            NavigationDestination(
+                icon: Icon(Icons.article_outlined),
+                selectedIcon: Icon(Icons.article_rounded),
+                label: 'Blogs'),
+            NavigationDestination(
+                icon: Icon(Icons.person_outline_rounded),
+                selectedIcon: Icon(Icons.person_rounded),
+                label: 'Profile'),
+          ],
+        ),
       ),
     );
   }

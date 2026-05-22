@@ -38,6 +38,8 @@ class RouteNames {
 
   // Psychologist — outside shell
   static const psychBlogDetail = '/psych/blog-detail';
+  static const psychIncomingCall = '/psych/incoming-call';
+  static const psychActiveCall = '/psych/active-call';
 
   // Admin shell
   static const adminDashboard = '/admin/dashboard';

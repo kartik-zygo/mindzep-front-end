@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../config/app_config.dart';
@@ -10,7 +12,15 @@ class SocketManager {
   final TokenStorage _tokenStorage;
   final Map<String, io.Socket> _socketByNamespace = {};
 
-  Future<io.Socket> connect(String namespace) async {
+  /// Connects to a Socket.IO namespace.
+  ///
+  /// When [awaitConnection] is `true` the Future resolves only after the
+  /// socket emits its 'connect' event (i.e. the auth handshake is complete
+  /// and the server has added the socket to its per-user room).  This is
+  /// essential for the call namespace where an event can arrive very shortly
+  /// after the socket is first created.
+  Future<io.Socket> connect(String namespace,
+      {bool awaitConnection = false}) async {
     final normalizedNamespace = namespace.startsWith('/')
         ? namespace
         : '/$namespace';
@@ -35,8 +45,36 @@ class SocketManager {
           .build(),
     );
 
-    socket.connect();
     _socketByNamespace[normalizedNamespace] = socket;
+
+    if (awaitConnection) {
+      final completer = Completer<io.Socket>();
+
+      socket.onConnect((_) {
+        if (!completer.isCompleted) completer.complete(socket);
+      });
+
+      socket.onConnectError((err) {
+        if (!completer.isCompleted) {
+          completer.completeError(
+            Exception('Socket connection error [$namespace]: $err'),
+          );
+        }
+      });
+
+      socket.connect();
+
+      // Give the socket up to 15 seconds to complete the auth handshake.
+      return completer.future.timeout(
+        const Duration(seconds: 15),
+        onTimeout: () => throw TimeoutException(
+          'Socket [$namespace] did not connect within 15 s',
+          const Duration(seconds: 15),
+        ),
+      );
+    }
+
+    socket.connect();
     return socket;
   }
 

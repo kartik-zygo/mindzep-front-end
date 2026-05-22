@@ -41,11 +41,13 @@ class AppointmentRepository {
       parser: (json) {
         final payload = JsonReaders.asMap(json);
         final data = ApiResponseParser.extractData(payload);
+        final dataMap = JsonReaders.asMap(data);
+        final appointmentsList = dataMap.containsKey('appointments')
+            ? JsonReaders.asMapList(dataMap['appointments'])
+            : JsonReaders.asMapList(data);
 
         return PaginatedResponse<AppointmentModel>(
-          items: JsonReaders.asMapList(data)
-              .map(AppointmentModel.fromJson)
-              .toList(),
+          items: appointmentsList.map(AppointmentModel.fromJson).toList(),
           pagination: ApiResponseParser.extractPagination(payload),
         );
       },

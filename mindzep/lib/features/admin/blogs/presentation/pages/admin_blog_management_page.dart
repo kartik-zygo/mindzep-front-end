@@ -3,11 +3,14 @@ import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/widgets/app_avatar.dart';
 import '../../../../../core/widgets/app_badge.dart';
 import '../../../../../core/widgets/app_card.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../user/blog/data/models/blog_models.dart';
+import '../../../../user/blog/data/repositories/blog_repository.dart';
 
 class AdminBlogManagementPage extends StatefulWidget {
   const AdminBlogManagementPage({super.key});
@@ -19,8 +22,12 @@ class AdminBlogManagementPage extends StatefulWidget {
 
 class _AdminBlogManagementPageState extends State<AdminBlogManagementPage>
     with SingleTickerProviderStateMixin {
+  late final BlogRepository _blogRepository;
   late TabController _tabCtrl;
-  late List<BlogEntity> _blogs;
+
+  bool _loading = true;
+  String? _loadError;
+  List<BlogEntity> _blogs = const [];
 
   static const _adminGradient = LinearGradient(
     colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
@@ -31,8 +38,9 @@ class _AdminBlogManagementPageState extends State<AdminBlogManagementPage>
   @override
   void initState() {
     super.initState();
-    _blogs = List.from(MockData.blogs);
+    _blogRepository = sl<BlogRepository>();
     _tabCtrl = TabController(length: 4, vsync: this);
+    _loadBlogs();
   }
 
   @override
@@ -41,27 +49,43 @@ class _AdminBlogManagementPageState extends State<AdminBlogManagementPage>
     super.dispose();
   }
 
+  Future<void> _loadBlogs() async {
+    setState(() { _loading = true; _loadError = null; });
+    try {
+      final results = await _blogRepository.listAdminAllBlogs(page: 1, limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _blogs = results.map((m) => m.toEntity()).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _loadError = e is ApiErrorModel ? e.message : 'Failed to load blogs.'; });
+    } finally {
+      if (mounted) setState(() { _loading = false; });
+    }
+  }
+
   List<BlogEntity> _filtered(String filter) {
     return switch (filter) {
       'Under Review' => _blogs.where((b) => b.status == BlogStatus.underReview).toList(),
-      'Published' => _blogs.where((b) => b.status == BlogStatus.published).toList(),
-      'Rejected' => _blogs.where((b) => b.status == BlogStatus.rejected).toList(),
-      _ => _blogs,
+      'Published'    => _blogs.where((b) => b.status == BlogStatus.published).toList(),
+      'Rejected'     => _blogs.where((b) => b.status == BlogStatus.rejected).toList(),
+      _              => _blogs,
     };
   }
 
-  void _approve(BlogEntity blog) {
-    setState(() {
-      final idx = _blogs.indexWhere((b) => b.id == blog.id);
-      if (idx != -1) {
-        _blogs[idx] = _BlogHelper.withStatus(blog, BlogStatus.published);
-      }
-    });
-    AppSnackbar.show(
-      context,
-      message: '"${blog.title}" has been approved and published.',
-      type: SnackbarType.success,
-    );
+  Future<void> _approve(BlogEntity blog) async {
+    try {
+      await _blogRepository.approveBlog(blog.id, const BlogReviewRequest());
+      if (!mounted) return;
+      AppSnackbar.show(context, message: '"${blog.title}" approved and published.', type: SnackbarType.success);
+      _loadBlogs();
+    } catch (e) {
+      if (!mounted) return;
+      final msg = e is ApiErrorModel ? e.message : 'Failed to approve blog.';
+      AppSnackbar.show(context, message: msg, type: SnackbarType.error);
+    }
   }
 
   void _reject(BlogEntity blog) {
@@ -76,41 +100,30 @@ class _AdminBlogManagementPageState extends State<AdminBlogManagementPage>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppDimensions.radiusXL),
         ),
-        title: const Text(
-          'Reject Blog Post',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Reject Blog Post', style: TextStyle(fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               '"${blog.title}"',
-              style: AppTextStyles.footnote
-                  .copyWith(color: AppColors.textSecondary),
+              style: AppTextStyles.footnote.copyWith(color: AppColors.textSecondary),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 16),
-            Text(
-              'Reason for rejection (optional)',
-              style: AppTextStyles.caption1
-                  .copyWith(fontWeight: FontWeight.w600),
-            ),
+            Text('Reason for rejection', style: AppTextStyles.caption1.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             TextField(
               controller: reasonCtrl,
               maxLines: 3,
               decoration: InputDecoration(
-                hintText:
-                    'e.g., Content needs medical review, inappropriate language...',
-                hintStyle: AppTextStyles.caption1
-                    .copyWith(color: AppColors.textTertiary),
+                hintText: 'e.g., Needs clinical references, inappropriate language...',
+                hintStyle: AppTextStyles.caption1.copyWith(color: AppColors.textTertiary),
                 filled: true,
                 fillColor: AppColors.surfaceSecondary,
                 border: OutlineInputBorder(
-                  borderRadius:
-                      BorderRadius.circular(AppDimensions.radiusM),
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusM),
                   borderSide: BorderSide.none,
                 ),
                 contentPadding: const EdgeInsets.all(12),
@@ -119,33 +132,31 @@ class _AdminBlogManagementPageState extends State<AdminBlogManagementPage>
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
-              setState(() {
-                final idx = _blogs.indexWhere((b) => b.id == blog.id);
-                if (idx != -1) {
-                  _blogs[idx] =
-                      _BlogHelper.withStatus(blog, BlogStatus.rejected);
-                }
-              });
-              AppSnackbar.show(
-                context,
-                message: '"${blog.title}" has been rejected.',
-                type: SnackbarType.warning,
-              );
+              final reason = reasonCtrl.text.trim().isNotEmpty
+                  ? reasonCtrl.text.trim()
+                  : 'Blog rejected by admin.';
+              try {
+                await _blogRepository.rejectBlog(
+                  blog.id,
+                  BlogRejectionRequest(rejectionReason: reason),
+                );
+                if (!mounted) return;
+                AppSnackbar.show(context, message: '"${blog.title}" rejected.', type: SnackbarType.warning);
+                _loadBlogs();
+              } catch (e) {
+                if (!mounted) return;
+                final msg = e is ApiErrorModel ? e.message : 'Failed to reject blog.';
+                AppSnackbar.show(context, message: msg, type: SnackbarType.error);
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(AppDimensions.radiusM),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppDimensions.radiusM)),
             ),
             child: const Text('Reject'),
           ),
@@ -158,6 +169,30 @@ class _AdminBlogManagementPageState extends State<AdminBlogManagementPage>
   Widget build(BuildContext context) {
     final underReviewCount =
         _blogs.where((b) => b.status == BlogStatus.underReview).length;
+
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_loadError != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                const SizedBox(height: 12),
+                Text(_loadError!, textAlign: TextAlign.center, style: AppTextStyles.body),
+                const SizedBox(height: 16),
+                ElevatedButton(onPressed: _loadBlogs, child: const Text('Retry')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -592,27 +627,5 @@ class _BlogCard extends StatelessWidget {
     if (diff == 1) return 'Yesterday';
     if (diff < 7) return '$diff days ago';
     return '${d.day}/${d.month}/${d.year}';
-  }
-}
-
-class _BlogHelper {
-  static BlogEntity withStatus(BlogEntity blog, BlogStatus status) {
-    return BlogEntity(
-      id: blog.id,
-      psychologistId: blog.psychologistId,
-      psychologistName: blog.psychologistName,
-      psychologistAvatar: blog.psychologistAvatar,
-      title: blog.title,
-      body: blog.body,
-      category: blog.category,
-      tags: blog.tags,
-      coverImageUrl: blog.coverImageUrl,
-      status: status,
-      viewCount: blog.viewCount,
-      commentCount: blog.commentCount,
-      createdAt: blog.createdAt,
-      publishedAt:
-          status == BlogStatus.published ? DateTime.now() : blog.publishedAt,
-    );
   }
 }

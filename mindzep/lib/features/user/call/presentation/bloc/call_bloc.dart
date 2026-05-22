@@ -4,9 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../../core/config/app_config.dart';
 import '../../../../../core/utils/currency_utils.dart';
+import '../../../../../core/utils/json_readers.dart';
 import '../../data/agora/agora_call_engine.dart';
 import '../../data/models/call_models.dart';
 import '../../data/repositories/call_repository.dart';
+import '../../data/socket/call_socket_manager.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 
 // ─── Events ──────────────────────────────────────────────────────────────────
@@ -86,6 +88,60 @@ class RemoteParticipantLeft extends CallEvent {
 
   @override
   List<Object?> get props => [uid];
+}
+
+/// Joins an Agora channel directly from broadcast-accepted credentials —
+/// skips the API initiation step since the BroadcastCallBloc already handled
+/// `POST /calls/broadcast-instant` and received `call:accepted` from the
+/// socket.  This event is fired immediately after navigating to ActiveCallScreen.
+class JoinBroadcastCall extends CallEvent {
+  final String appointmentId;
+  final String appId;
+  final String token;
+  final String channelName;
+  final int uid;
+  final double ratePerMinute;
+  final int freeMinutes;
+  final double walletBalance;
+  final String psychologistName;
+  final String? psychologistAvatar;
+  final bool enableVideo;
+
+  const JoinBroadcastCall({
+    required this.appointmentId,
+    required this.appId,
+    required this.token,
+    required this.channelName,
+    required this.uid,
+    required this.ratePerMinute,
+    required this.freeMinutes,
+    this.walletBalance = 0,
+    required this.psychologistName,
+    this.psychologistAvatar,
+    this.enableVideo = true,
+  });
+
+  @override
+  List<Object?> get props => [appointmentId, channelName, token];
+}
+
+// ─── Private internal events ─────────────────────────────────────────────────
+
+/// Fired when the psychologist accepts the call. Carries the raw socket payload
+/// containing Agora credentials.
+class _CallAccepted extends CallEvent {
+  final Map<String, dynamic> payload;
+  const _CallAccepted(this.payload);
+  @override
+  List<Object?> get props => [payload];
+}
+
+/// Fired when the psychologist declines the call.
+class _CallRejected extends CallEvent {
+  final String reason;
+  const _CallRejected(this.reason);
+  @override
+  List<Object?> get props => [reason];
 }
 
 // ─── States ───────────────────────────────────────────────────────────────────
@@ -206,9 +262,11 @@ class CallErrorState extends CallState {
 class CallBloc extends Bloc<CallEvent, CallState> {
   final CallRepository _callRepository;
   final AgoraCallEngine _agoraCallEngine;
+  final CallSocketManager _callSocketManager;
 
   Timer? _timer;
   Timer? _heartbeatTimer;
+  StreamSubscription<Map<String, dynamic>>? _socketSub;
 
   String? _appointmentId;
   String _psychologistName = 'Psychologist';
@@ -225,10 +283,15 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   CallBloc({
     required CallRepository callRepository,
     required AgoraCallEngine agoraCallEngine,
+    required CallSocketManager callSocketManager,
   })  : _callRepository = callRepository,
         _agoraCallEngine = agoraCallEngine,
+        _callSocketManager = callSocketManager,
         super(const CallInitial()) {
     on<InitiateCall>(_onInitiate);
+    on<JoinBroadcastCall>(_onJoinBroadcast);
+    on<_CallAccepted>(_onCallAccepted);
+    on<_CallRejected>(_onCallRejected);
     on<CallConnected>(_onConnected);
     on<TimerTick>(_onTick);
     on<EndCall>(_onEndCall);
@@ -263,33 +326,180 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     ));
 
     try {
-      final initiatedCall =
-        await _callRepository.initiateCall(appointmentId);
-      final connectedCall = await _callRepository.connectCall(appointmentId);
+      // Broadcast-initiate ONLY — notifies the psychologist and opens the
+      // call slot.  Do NOT call /initiate or /connect; those are the old
+      // self-service flow that bypasses the accept/reject step.
+      final broadcast =
+          await _callRepository.broadcastInitiateCall(appointmentId);
 
-      _appointmentId = connectedCall.appointmentId.trim().isNotEmpty
-        ? connectedCall.appointmentId
-        : initiatedCall.appointmentId;
+      _ratePerMinute = broadcast.ratePerMinute > 0
+          ? broadcast.ratePerMinute
+          : _ratePerMinute;
+      _freeMinutes =
+          broadcast.freeMinutes > 0 ? broadcast.freeMinutes : _freeMinutes;
 
-      _ratePerMinute = connectedCall.ratePerMinute > 0
-          ? connectedCall.ratePerMinute
-          : initiatedCall.ratePerMinute;
-      _freeMinutes = connectedCall.freeMinutes > 0
-          ? connectedCall.freeMinutes
-          : initiatedCall.freeMinutes;
-
-      await _joinAgoraIfAvailable(
-        initiatedCall,
-        connectedCall,
-        enableVideo: event.enableVideo,
-      );
-
-      if (!isClosed) {
-        add(const CallConnected());
-      }
+      // Connect to the /call socket namespace and listen for the psychologist
+      // to accept (call:accepted) or decline (call:rejected).
+      await _callSocketManager.connect();
+      _socketSub =
+          _callSocketManager.eventStream.listen(_handleSocketEvent);
     } catch (error) {
       emit(CallErrorState(error.toString()));
     }
+  }
+
+  /// Routes incoming socket events to the appropriate internal BLoC event.
+  void _handleSocketEvent(Map<String, dynamic> event) {
+    final name = event['event'] as String? ?? '';
+    final payload = JsonReaders.asMap(event['payload']);
+    if (name == 'call:accepted') {
+      if (!isClosed) add(_CallAccepted(payload));
+    } else if (name == 'call:rejected') {
+      if (!isClosed) {
+        add(const _CallRejected('The psychologist declined the call.'));
+      }
+    }
+  }
+
+  /// Directly joins an Agora channel from broadcast-accepted credentials.
+  /// Called when the user navigates to [ActiveCallScreen] after the
+  /// [BroadcastCallBloc] received the `call:accepted` socket event.
+  Future<void> _onJoinBroadcast(
+    JoinBroadcastCall event,
+    Emitter<CallState> emit,
+  ) async {
+    _appointmentId = event.appointmentId;
+    _psychologistName = event.psychologistName;
+    _psychologistAvatar = event.psychologistAvatar;
+    _ratePerMinute = event.ratePerMinute > 0 ? event.ratePerMinute : _ratePerMinute;
+    _freeMinutes = event.freeMinutes > 0 ? event.freeMinutes : _freeMinutes;
+    _walletBalance = event.walletBalance;
+    _walletDepleted = false;
+    _isVideoEnabled = event.enableVideo;
+
+    emit(CallConnecting(
+      psychologistName: _psychologistName,
+      psychologistAvatar: _psychologistAvatar,
+    ));
+
+    try {
+      final appId = event.appId.isNotEmpty ? event.appId : AppConfig.agoraAppId;
+
+      if (appId.isEmpty) throw Exception('Agora App ID missing.');
+      if (event.token.isEmpty) throw Exception('Agora token missing.');
+      if (event.channelName.isEmpty) throw Exception('Agora channel name missing.');
+
+      await _agoraCallEngine.initialize(
+        appId: appId,
+        eventHandler: RtcEngineEventHandler(
+          onError: (error, message) {
+            debugPrint('Agora error (broadcast): $error - $message');
+          },
+          onUserJoined: (connection, remoteUid, elapsed) {
+            if (!isClosed) add(RemoteParticipantJoined(remoteUid));
+          },
+          onUserOffline: (connection, remoteUid, reason) {
+            if (!isClosed) add(RemoteParticipantLeft(remoteUid));
+          },
+        ),
+      );
+
+      await _agoraCallEngine.joinChannel(
+        token: event.token,
+        channelName: event.channelName,
+        uid: event.uid,
+        enableVideo: _isVideoEnabled,
+      );
+
+      _channelName = event.channelName;
+      if (!isClosed) add(const CallConnected());
+    } catch (error) {
+      emit(CallErrorState(error.toString()));
+    }
+  }
+
+  /// Handles psychologist accepting — parses Agora credentials from the socket
+  /// payload, initialises the engine, joins the channel, then emits [CallActive].
+  Future<void> _onCallAccepted(
+      _CallAccepted event, Emitter<CallState> emit) async {
+    try {
+      await _socketSub?.cancel();
+      _socketSub = null;
+
+      final payload = event.payload;
+
+      // Support nested agora sub-map or flat payload (same aliases as backend).
+      final agora = JsonReaders.asMap(
+        JsonReaders.readAny(payload, ['agora', 'rtc', 'connection']),
+      );
+
+      String resolve(List<String> agoraKeys, List<String> rootKeys) {
+        final v = JsonReaders.readString(agora, agoraKeys);
+        if (v.isNotEmpty) return v;
+        return JsonReaders.readString(payload, rootKeys);
+      }
+
+      final appId = _pickNonEmpty([
+        resolve(['appId', 'agoraAppId'], ['appId', 'agoraAppId']),
+        AppConfig.agoraAppId,
+      ]);
+      final token =
+          resolve(['token', 'agoraToken'], ['token', 'agoraToken']);
+      final channel = resolve(
+        ['channelName', 'channelId'],
+        ['channelName', 'channelId', 'agoraChannel'],
+      );
+      int uid = JsonReaders.readInt(agora, ['uid']);
+      if (uid == 0) uid = JsonReaders.readInt(payload, ['uid', 'agoraUid']);
+
+      if (appId.isEmpty) {
+        throw Exception('Agora App ID missing in call:accepted event.');
+      }
+      if (token.isEmpty) {
+        throw Exception('Agora token missing in call:accepted event.');
+      }
+      if (channel.isEmpty) {
+        throw Exception('Agora channel name missing in call:accepted event.');
+      }
+
+      // Refresh billing metadata if the accepted event carries fresher values.
+      final rate =
+          JsonReaders.readDouble(payload, ['ratePerMinute', 'rate']);
+      if (rate > 0) _ratePerMinute = rate;
+      final free = JsonReaders.readInt(payload, ['freeMinutes']);
+      if (free > 0) _freeMinutes = free;
+
+      await _agoraCallEngine.initialize(
+        appId: appId,
+        eventHandler: RtcEngineEventHandler(
+          onError: (error, message) {
+            debugPrint('Agora error: $error - $message');
+          },
+          onUserJoined: (connection, remoteUid, elapsed) {
+            if (!isClosed) add(RemoteParticipantJoined(remoteUid));
+          },
+          onUserOffline: (connection, remoteUid, reason) {
+            if (!isClosed) add(RemoteParticipantLeft(remoteUid));
+          },
+        ),
+      );
+
+      await _agoraCallEngine.joinChannel(
+        token: token,
+        channelName: channel,
+        uid: uid,
+        enableVideo: _isVideoEnabled,
+      );
+
+      _channelName = channel;
+      if (!isClosed) add(const CallConnected());
+    } catch (error) {
+      emit(CallErrorState(error.toString()));
+    }
+  }
+
+  void _onCallRejected(_CallRejected event, Emitter<CallState> emit) {
+    emit(CallErrorState(event.reason));
   }
 
   void _onRemoteParticipantJoined(
@@ -384,6 +594,9 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   }
 
   Future<void> _onEndCall(EndCall event, Emitter<CallState> emit) async {
+    // Cancel socket subscription if the user cancels before accepting.
+    await _socketSub?.cancel();
+    _socketSub = null;
     _timer?.cancel();
     _heartbeatTimer?.cancel();
 
@@ -444,56 +657,6 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     }
   }
 
-  Future<void> _joinAgoraIfAvailable(
-    CallRuntimeModel initiated,
-    CallRuntimeModel connected,
-    {required bool enableVideo}
-  ) async {
-    final appId = _pickNonEmpty([
-      connected.appId,
-      initiated.appId,
-      AppConfig.agoraAppId,
-    ]);
-
-    final token = _pickNonEmpty([connected.token, initiated.token]);
-    final channel = _pickNonEmpty([
-      connected.channelName,
-      initiated.channelName,
-    ]);
-
-    if (appId.isEmpty || token.isEmpty || channel.isEmpty) {
-      return;
-    }
-
-    await _agoraCallEngine.initialize(
-      appId: appId,
-      eventHandler: RtcEngineEventHandler(
-        onError: (error, message) {
-          debugPrint('Agora error: $error - $message');
-        },
-        onUserJoined: (connection, remoteUid, elapsed) {
-          if (!isClosed) {
-            add(RemoteParticipantJoined(remoteUid));
-          }
-        },
-        onUserOffline: (connection, remoteUid, reason) {
-          if (!isClosed) {
-            add(RemoteParticipantLeft(remoteUid));
-          }
-        },
-      ),
-    );
-
-    await _agoraCallEngine.joinChannel(
-      token: token,
-      channelName: channel,
-      uid: connected.uid,
-      enableVideo: enableVideo,
-    );
-
-    _channelName = channel;
-  }
-
   String _pickNonEmpty(List<String?> values) {
     for (final value in values) {
       if (value != null && value.trim().isNotEmpty) {
@@ -507,6 +670,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   Future<void> close() async {
     _timer?.cancel();
     _heartbeatTimer?.cancel();
+    await _socketSub?.cancel();
+    _callSocketManager.disconnect();
     await _agoraCallEngine.dispose();
     return super.close();
   }

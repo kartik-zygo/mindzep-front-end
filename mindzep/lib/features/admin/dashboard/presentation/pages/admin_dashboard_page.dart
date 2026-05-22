@@ -348,8 +348,17 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
+                          Container(
+                            width: 38, height: 38,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)]),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 20),
+                          ),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,35 +379,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                               ],
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: AppColors.success.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(
-                                  AppDimensions.radiusFull),
-                            ),
-                            child: const Row(
-                              children: [
-                                Icon(Icons.trending_up_rounded,
-                                    size: 14, color: AppColors.success),
-                                SizedBox(width: 4),
-                                Text(
-                                  '+11.9%',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.success,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: AppDimensions.paddingM),
                       SizedBox(
-                        height: 100,
+                        height: 110,
                         child: LineChart(
                           LineChartData(
                             gridData: FlGridData(
@@ -477,9 +462,25 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 const SizedBox(height: AppDimensions.paddingM),
 
                 // Quick Actions
-                Text('Quick Actions',
-                    style: AppTextStyles.headline
-                        .copyWith(color: AppColors.textPrimary)),
+                Row(
+                  children: [
+                    Container(
+                      width: 4, height: 18,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('Quick Actions',
+                        style: AppTextStyles.headline
+                            .copyWith(color: AppColors.textPrimary)),
+                  ],
+                ),
                 const SizedBox(height: AppDimensions.paddingS),
                 Row(
                   children: [
@@ -511,58 +512,35 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 ),
                 const SizedBox(height: AppDimensions.paddingM),
 
-                // Today's Activity
-                Text("Today's Activity",
-                    style: AppTextStyles.headline
-                        .copyWith(color: AppColors.textPrimary)),
-                const SizedBox(height: AppDimensions.paddingS),
-                AppCard(
-                  child: Column(
-                    children: [
-                      _ActivityRow(
-                          label: 'Active Users',
-                          value: '1,240',
-                          change: '+45',
-                          up: true),
-                      const Divider(
-                          height: 1, color: AppColors.surfaceSecondary),
-                      _ActivityRow(
-                          label: 'Sessions Today',
-                          value: '$sessionsToday',
-                          change: '+12',
-                          up: true),
-                      const Divider(
-                          height: 1, color: AppColors.surfaceSecondary),
-                      _ActivityRow(
-                          label: 'New Signups',
-                          value: '28',
-                          change: '+8',
-                          up: true),
-                      const Divider(
-                          height: 1, color: AppColors.surfaceSecondary),
-                      _ActivityRow(
-                          label: 'Revenue Today',
-                          value: '₹14.8K',
-                          change: '+5%',
-                          up: true),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppDimensions.paddingM),
-
-                // Recent Users
+                // Recent Psychologists
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Recent Users',
-                        style: AppTextStyles.headline
-                            .copyWith(color: AppColors.textPrimary)),
+                    Row(
+                      children: [
+                        Container(
+                          width: 4, height: 18,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('Recent Psychologists',
+                            style: AppTextStyles.headline
+                                .copyWith(color: AppColors.textPrimary)),
+                      ],
+                    ),
                     GestureDetector(
                       onTap: () => context.go(RouteNames.adminUsers),
                       child: Text(
                         'See All',
                         style: AppTextStyles.footnote
-                            .copyWith(color: const Color(0xFFFF6B6B)),
+                            .copyWith(color: const Color(0xFFFF6B6B), fontWeight: FontWeight.w600),
                       ),
                     ),
                   ],
@@ -575,23 +553,23 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         child: Row(
                           children: [
                             AppAvatar(
-                              imageUrl: (u['avatarUrl'] ??
+                              imageUrl: (u['user']['avatarUrl'] ??
                                       u['avatar'] ??
                                       u['profilePicture'])
                                   ?.toString(),
                               radius: 20,
-                              initials: ((u['name'] ?? 'U').toString()[0]),
+                              initials: ((u['user']['name'] ?? 'U').toString()[0]),
                             ),
                             const SizedBox(width: AppDimensions.paddingM),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text((u['name'] ?? 'Psychologist').toString(),
+                                  Text((u['user']['name'] ?? 'Psychologist').toString(),
                                       style: AppTextStyles.subheadline
                                           .copyWith(
                                               fontWeight: FontWeight.w600)),
-                                  Text((u['email'] ?? '-').toString(),
+                                  Text((u['user']['email'] ?? '-').toString(),
                                       style: AppTextStyles.caption1.copyWith(
                                           color: AppColors.textSecondary)),
                                 ],
@@ -754,76 +732,31 @@ class _QuickAction extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: AppCard(
-          padding:
-              const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
           child: Column(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(14)),
-                child: Icon(icon, color: color, size: 22),
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4)),
+                  ],
+                ),
+                child: Icon(icon, color: color, size: 24),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 label,
                 textAlign: TextAlign.center,
                 style: AppTextStyles.caption1
-                    .copyWith(fontWeight: FontWeight.w600),
+                    .copyWith(fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ─── Activity Row ─────────────────────────────────────────────────────────────
-
-class _ActivityRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final String change;
-  final bool up;
-
-  const _ActivityRow({
-    required this.label,
-    required this.value,
-    required this.change,
-    required this.up,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        children: [
-          Expanded(child: Text(label, style: AppTextStyles.subheadline)),
-          Text(value,
-              style: AppTextStyles.subheadline
-                  .copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: up
-                  ? AppColors.success.withOpacity(0.1)
-                  : AppColors.error.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
-            ),
-            child: Text(
-              change,
-              style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: up ? AppColors.success : AppColors.error),
-            ),
-          ),
-        ],
       ),
     );
   }

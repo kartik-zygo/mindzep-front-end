@@ -12,6 +12,10 @@ import '../features/user/appointments/data/repositories/appointment_repository.d
 import '../features/user/blog/data/repositories/blog_repository.dart';
 import '../features/user/call/data/agora/agora_call_engine.dart';
 import '../features/user/call/data/repositories/call_repository.dart';
+import '../features/psychologist/call/data/socket/psych_call_socket_service.dart';
+import '../features/psychologist/call/data/repositories/psych_call_repository.dart';
+import '../features/psychologist/call/presentation/bloc/psych_call_bloc.dart';
+import '../features/user/broadcast/presentation/bloc/broadcast_bloc.dart';
 import '../features/user/call/data/socket/call_socket_manager.dart';
 import '../features/user/call/presentation/bloc/call_bloc.dart';
 import '../features/user/chat/data/repositories/chat_repository.dart';
@@ -99,6 +103,12 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<NotificationsSocketManager>(
     () => NotificationsSocketManager(socketManager: sl<SocketManager>()),
   );
+  sl.registerLazySingleton<PsychCallSocketService>(
+    () => PsychCallSocketService(socketManager: sl<SocketManager>()),
+  );
+  sl.registerLazySingleton<PsychCallRepository>(
+    () => PsychCallRepository(dioClient: sl<DioClient>()),
+  );
 
   // BLoCs — registered as factories so each context gets a fresh instance
   sl.registerFactory<AuthBloc>(
@@ -109,6 +119,19 @@ Future<void> initDependencies() async {
   );
   sl.registerFactory<CallBloc>(
     () => CallBloc(
+      callRepository: sl<CallRepository>(),
+      agoraCallEngine: sl<AgoraCallEngine>(),
+      callSocketManager: sl<CallSocketManager>(),
+    ),
+  );
+  sl.registerFactory<BroadcastCallBloc>(
+    () => BroadcastCallBloc(
+      callRepository: sl<CallRepository>(),
+      callSocketManager: sl<CallSocketManager>(),
+    ),
+  );
+  sl.registerFactory<PsychCallBloc>(
+    () => PsychCallBloc(
       callRepository: sl<CallRepository>(),
       agoraCallEngine: sl<AgoraCallEngine>(),
     ),

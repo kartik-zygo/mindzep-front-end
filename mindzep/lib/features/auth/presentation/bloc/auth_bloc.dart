@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/network/api_error_model.dart';
+import '../../../../core/services/firebase_service.dart';
 import '../../data/models/auth_models.dart';
 import '../../data/repositories/auth_repository.dart';
 import '../../domain/entities/user_entity.dart';
@@ -42,6 +43,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final user = await _authRepository.getCurrentUser();
       _currentUser = user;
       emit(AuthAuthenticated(user));
+      await _sendFcmToken();
     } catch (_) {
       await _authRepository.clearSession();
       emit(const AuthUnauthenticated());
@@ -62,6 +64,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final user = session.user?.toEntity() ?? await _authRepository.getCurrentUser();
       _currentUser = user;
       emit(AuthAuthenticated(user));
+      await _sendFcmToken();
     } catch (error) {
       emit(AuthError(_toErrorMessage(error)));
     }
@@ -115,6 +118,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final user = session.user?.toEntity() ?? await _authRepository.getCurrentUser();
       _currentUser = user;
       emit(AuthAuthenticated(user));
+      await _sendFcmToken();
     } catch (error) {
       emit(AuthError(_toErrorMessage(error)));
     }
@@ -157,6 +161,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         final user = session.user?.toEntity() ?? await _authRepository.getCurrentUser();
         _currentUser = user;
         emit(AuthAuthenticated(user));
+        await _sendFcmToken();
       } else {
         emit(const AuthOtpVerified());
       }
@@ -239,6 +244,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
     } catch (_) {
       // FCM sync failure should not block app navigation.
+    }
+  }
+
+  Future<void> _sendFcmToken() async {
+    try {
+      final token = FirebaseService.instance.fcmToken;
+      if (token == null || token.isEmpty) return;
+      await _authRepository.updateFcmToken(UpdateFcmTokenRequest(fcmToken: token));
+    } catch (_) {
+      // FCM sync failure should not block the user.
     }
   }
 

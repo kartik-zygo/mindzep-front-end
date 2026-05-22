@@ -66,4 +66,28 @@ class CallRoutePayload {
       preferredSessionType: appointment.sessionType,
     );
   }
+
+  /// Minimal payload for calls that originated from the instant broadcast flow
+  /// (no prior appointment slot).  Most fields are unknown at navigation time;
+  /// the actual billing values come from the BLoC state.
+  factory CallRoutePayload.fromBroadcast({
+    required String appointmentId,
+    required String psychologistName,
+    String? psychologistAvatar,
+    double ratePerMinute = 0,
+    int freeMinutes = 2,
+  }) {
+    return CallRoutePayload(
+      appointmentId: appointmentId,
+      psychologistId: '',
+      psychologistName: psychologistName,
+      psychologistAvatar: psychologistAvatar,
+      specialization: 'Instant Session',
+      ratePerMinute: ratePerMinute,
+      freeMinutes: freeMinutes,
+      rating: 0,
+      yearsExperience: 0,
+      preferredSessionType: SessionType.video,
+    );
+  }
 }

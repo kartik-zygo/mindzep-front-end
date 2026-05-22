@@ -389,15 +389,18 @@ class _NotifTile extends StatelessWidget {
 
   _NotifType _parseType(String raw) {
     switch (raw.toLowerCase()) {
+      case 'appointment':
       case 'session':
         return _NotifType.session;
       case 'mood':
         return _NotifType.mood;
       case 'promo':
       case 'marketing':
+      case 'blog':
         return _NotifType.promo;
       case 'payment':
         return _NotifType.payment;
+      case 'account':
       case 'system':
       default:
         return _NotifType.system;
@@ -422,15 +425,15 @@ class _NotifTile extends StatelessWidget {
   String _emoji(_NotifType type) {
     switch (type) {
       case _NotifType.session:
-        return 'S';
+        return '📅';
       case _NotifType.mood:
-        return 'M';
+        return '💆';
       case _NotifType.payment:
-        return 'P';
+        return '💳';
       case _NotifType.promo:
-        return 'O';
+        return '📝';
       case _NotifType.system:
-        return 'N';
+        return '🔔';
     }
   }
 

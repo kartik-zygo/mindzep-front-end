@@ -13,7 +13,11 @@ class UserRepository {
   Future<UserProfileModel> getMe() {
     return _dioClient.get<UserProfileModel>(
       ApiEndpoints.me,
-      parser: (json) => UserProfileModel.fromJson(JsonReaders.asMap(json)),
+      parser: (json) {
+        final map = JsonReaders.asMap(json);
+        final user = map.containsKey('user') ? JsonReaders.asMap(map['user']) : map;
+        return UserProfileModel.fromJson(user);
+      },
     );
   }
 
@@ -21,7 +25,11 @@ class UserRepository {
     return _dioClient.put<UserProfileModel>(
       ApiEndpoints.me,
       data: request.toJson(),
-      parser: (json) => UserProfileModel.fromJson(JsonReaders.asMap(json)),
+      parser: (json) {
+        final map = JsonReaders.asMap(json);
+        final user = map.containsKey('user') ? JsonReaders.asMap(map['user']) : map;
+        return UserProfileModel.fromJson(user);
+      },
     );
   }
 

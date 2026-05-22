@@ -41,7 +41,12 @@ class BlogRepository {
     return _dioClient.post<BlogModel>(
       ApiEndpoints.blogs,
       data: request.toJson(),
-      parser: (json) => BlogModel.fromJson(JsonReaders.asMap(json)),
+      parser: (json) {
+        final map = JsonReaders.asMap(json);
+        // Response: { data: { blog: { _id: ... } } } — unwrap nested 'blog' key
+        final blogMap = map.containsKey('blog') ? JsonReaders.asMap(map['blog']) : map;
+        return BlogModel.fromJson(blogMap);
+      },
     );
   }
 
@@ -49,7 +54,11 @@ class BlogRepository {
     return _dioClient.put<BlogModel>(
       ApiEndpoints.blogById(blogId),
       data: request.toJson(),
-      parser: (json) => BlogModel.fromJson(JsonReaders.asMap(json)),
+      parser: (json) {
+        final map = JsonReaders.asMap(json);
+        final blogMap = map.containsKey('blog') ? JsonReaders.asMap(map['blog']) : map;
+        return BlogModel.fromJson(blogMap);
+      },
     );
   }
 
@@ -74,7 +83,11 @@ class BlogRepository {
     return _dioClient.get<List<BlogModel>>(
       ApiEndpoints.blogsAdminAll,
       queryParameters: {'page': page, 'limit': limit},
-      parser: (json) => JsonReaders.asMapList(json).map(BlogModel.fromJson).toList(),
+      parser: (json) {
+        final m = JsonReaders.asMap(json);
+        final list = m.containsKey('blogs') ? m['blogs'] : json;
+        return JsonReaders.asMapList(list).map(BlogModel.fromJson).toList();
+      },
     );
   }
 
@@ -85,7 +98,11 @@ class BlogRepository {
     return _dioClient.get<List<BlogModel>>(
       ApiEndpoints.blogsAdminSubmitted,
       queryParameters: {'page': page, 'limit': limit},
-      parser: (json) => JsonReaders.asMapList(json).map(BlogModel.fromJson).toList(),
+      parser: (json) {
+        final m = JsonReaders.asMap(json);
+        final list = m.containsKey('blogs') ? m['blogs'] : json;
+        return JsonReaders.asMapList(list).map(BlogModel.fromJson).toList();
+      },
     );
   }
 

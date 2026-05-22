@@ -28,11 +28,22 @@ class AdminRepository {
   Future<List<Map<String, dynamic>>> listPsychologists({
     int page = 1,
     int limit = 20,
+    String? search,
+    String? status,
   }) {
     return _dioClient.get<List<Map<String, dynamic>>>(
       ApiEndpoints.adminPsychologists,
-      queryParameters: {'page': page, 'limit': limit},
-      parser: JsonReaders.asMapList,
+      queryParameters: {
+        'page': page,
+        'limit': limit,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+      parser: (json) {
+        final m = JsonReaders.asMap(json);
+        final list = m.containsKey('psychologists') ? m['psychologists'] : json;
+        return JsonReaders.asMapList(list);
+      },
     );
   }
 
@@ -79,6 +90,38 @@ class AdminRepository {
     );
   }
 
+  Future<List<Map<String, dynamic>>> listUsers({
+    int page = 1,
+    int limit = 50,
+    String? search,
+    String? status,
+  }) {
+    return _dioClient.get<List<Map<String, dynamic>>>(
+      ApiEndpoints.adminUsers,
+      queryParameters: {
+        'page': page,
+        'limit': limit,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+      parser: (json) {
+        final map = JsonReaders.asMap(json);
+        final list = map.containsKey('users') ? map['users'] : json;
+        return JsonReaders.asMapList(list);
+      },
+    );
+  }
+
+  Future<Map<String, dynamic>> getUser(String userId) {
+    return _dioClient.get<Map<String, dynamic>>(
+      ApiEndpoints.adminUserById(userId),
+      parser: (json) {
+        final map = JsonReaders.asMap(json);
+        return map.containsKey('user') ? JsonReaders.asMap(map['user']) : map;
+      },
+    );
+  }
+
   Future<void> suspendUser(String userId, SuspendEntityRequest request) {
     return _dioClient.put<void>(
       ApiEndpoints.adminUserSuspend(userId),
@@ -109,7 +152,11 @@ class AdminRepository {
     return _dioClient.get<List<Map<String, dynamic>>>(
       ApiEndpoints.adminAppointments,
       queryParameters: {'page': page, 'limit': limit},
-      parser: JsonReaders.asMapList,
+      parser: (json) {
+        final m = JsonReaders.asMap(json);
+        final list = m.containsKey('appointments') ? m['appointments'] : json;
+        return JsonReaders.asMapList(list);
+      },
     );
   }
 

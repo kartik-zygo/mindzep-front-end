@@ -1,4 +1,5 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:mindzep/core/constants/api_constants.dart';
 
 class AppConfig {
   AppConfig._();
@@ -32,12 +33,13 @@ class AppConfig {
     final rawApiBase = _resolveValue(
       dotenvKey: 'API_BASE_URL',
       defineValue: _apiBaseUrlDefine,
+      fallback: ApiConstants.apiBaseUrl,
     );
 
     if (rawApiBase.isEmpty || rawApiBase == '__BACKEND_BASE_URL__') {
       throw StateError(
-        'API_BASE_URL is not configured. Set API_BASE_URL in .env '
-        'or pass --dart-define=API_BASE_URL=<backend-url>.',
+        'API_BASE_URL is not configured. Set API_BASE_URL in .env, '
+        'pass --dart-define=API_BASE_URL=<url>, or update ApiConstants.apiBaseUrl.',
       );
     }
 
@@ -46,7 +48,9 @@ class AppConfig {
       _resolveValue(
         dotenvKey: 'SOCKET_BASE_URL',
         defineValue: _socketBaseUrlDefine,
-        fallback: apiBaseUrl,
+        fallback: ApiConstants.socketBaseUrl.isNotEmpty
+            ? ApiConstants.socketBaseUrl
+            : apiBaseUrl,
       ),
     );
     restBaseUrl = '$apiBaseUrl/api/v1';
@@ -54,6 +58,7 @@ class AppConfig {
     agoraAppId = _resolveValue(
       dotenvKey: 'AGORA_APP_ID',
       defineValue: _agoraAppIdDefine,
+      fallback: ApiConstants.agoraAppId,
     );
 
     cashfreeEnvironment = _resolveValue(

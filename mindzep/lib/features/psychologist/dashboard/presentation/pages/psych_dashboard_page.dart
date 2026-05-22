@@ -345,6 +345,7 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                       _QuickAction(
                         icon: Icons.add_circle_outline_rounded,
                         label: 'Add Slot',
+                        sublabel: 'Set availability',
                         color: const Color(0xFF30B0C7),
                         onTap: () => context.go(RouteNames.psychSlots),
                       ),
@@ -352,6 +353,7 @@ class _PsychDashboardPageState extends State<PsychDashboardPage> {
                       _QuickAction(
                         icon: Icons.article_outlined,
                         label: 'Write Blog',
+                        sublabel: 'Share insights',
                         color: const Color(0xFF34C7A3),
                         onTap: () => context.go(RouteNames.psychBlogs),
                       ),
@@ -729,9 +731,10 @@ class _BarChartPainter extends CustomPainter {
 class _QuickAction extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String? sublabel;
   final Color color;
   final VoidCallback onTap;
-  const _QuickAction({required this.icon, required this.label, required this.color, required this.onTap});
+  const _QuickAction({required this.icon, required this.label, this.sublabel, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -739,21 +742,36 @@ class _QuickAction extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(color: color.withValues(alpha: 0.14), blurRadius: 12, offset: const Offset(0, 4)),
+              BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4),
+            ],
           ),
-          child: Column(
+          child: Row(
             children: [
               Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(color: color.withOpacity(0.12), shape: BoxShape.circle),
-                child: Icon(icon, color: color, size: 18),
+                width: 40, height: 40,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 20),
               ),
-              const SizedBox(height: 6),
-              Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color), textAlign: TextAlign.center),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+                    if (sublabel != null)
+                      Text(sublabel!, style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93), fontWeight: FontWeight.w400)),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -764,7 +782,8 @@ class _QuickAction extends StatelessWidget {
 
 // ── Stat Widgets ──────────────────────────────────────────────────────────────
 
-class _DashStat extends StatelessWidget {  final IconData icon;
+class _DashStat extends StatelessWidget {
+  final IconData icon;
   final String value, label;
   final Color color;
   const _DashStat({required this.icon, required this.value, required this.label, required this.color});
@@ -773,26 +792,26 @@ class _DashStat extends StatelessWidget {  final IconData icon;
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 5),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+          color: Colors.white.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
         ),
         child: Column(
           children: [
             Container(
-              width: 34, height: 34,
-              decoration: BoxDecoration(color: color.withOpacity(0.9), shape: BoxShape.circle),
-              child: Icon(icon, size: 17, color: Colors.white),
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              child: Icon(icon, size: 18, color: Colors.white),
             ),
-            const SizedBox(height: 6),
-            Text(value, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white)),
+            const SizedBox(height: 7),
+            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: -0.3)),
             const SizedBox(height: 2),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 10, color: Color(0xCCFFFFFF), height: 1.2),
+              style: const TextStyle(fontSize: 9.5, color: Color(0xCCFFFFFF), height: 1.3, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -812,12 +831,28 @@ class _SectionHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+        Row(
+          children: [
+            Container(
+              width: 4, height: 18,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+          ],
+        ),
         GestureDetector(
           onTap: onAction,
           child: Text(
             actionLabel,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF30B0C7)),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF30B0C7)),
           ),
         ),
       ],
@@ -961,26 +996,33 @@ class _EmptyBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32),
+      padding: const EdgeInsets.symmetric(vertical: 36),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF30B0C7).withValues(alpha: 0.08), blurRadius: 14, offset: const Offset(0, 5)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4),
+        ],
       ),
       child: Column(
         children: [
           Container(
-            width: 56, height: 56,
+            width: 64, height: 64,
             decoration: BoxDecoration(
-              color: const Color(0xFFE8F8FB),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFE8F8FB), Color(0xFFD0F5F0)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: const Color(0xFF30B0C7), size: 26),
+            child: Icon(icon, color: const Color(0xFF30B0C7), size: 28),
           ),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF3C3C3C))),
-          const SizedBox(height: 4),
-          Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
+          const SizedBox(height: 14),
+          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF1C1C1E))),
+          const SizedBox(height: 5),
+          Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93), fontWeight: FontWeight.w400)),
         ],
       ),
     );
@@ -1008,31 +1050,38 @@ class _BottomStatCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 2))],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: iconColor.withValues(alpha: 0.12), blurRadius: 14, offset: const Offset(0, 5)),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 1)),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 40, height: 40,
-            decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
-            child: Icon(icon, color: iconColor, size: 20),
-          ),
-          const SizedBox(height: 12),
-          Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
-          const SizedBox(height: 3),
-          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            width: 44, height: 44,
             decoration: BoxDecoration(
-              color: badgeColor.withOpacity(0.12),
+              color: bgColor,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [BoxShadow(color: iconColor.withValues(alpha: 0.2), blurRadius: 8, offset: const Offset(0, 3))],
+            ),
+            child: Icon(icon, color: iconColor, size: 22),
+          ),
+          const SizedBox(height: 13),
+          Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E), letterSpacing: -0.5)),
+          const SizedBox(height: 2),
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93), fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              color: badgeColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Text(
               badge,
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: badgeColor),
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: badgeColor),
             ),
           ),
         ],

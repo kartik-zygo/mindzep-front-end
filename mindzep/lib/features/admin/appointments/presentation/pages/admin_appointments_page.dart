@@ -1,12 +1,12 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
-import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/widgets/app_avatar.dart';
-import '../../../../../core/widgets/app_badge.dart';
 import '../../../../../core/widgets/app_card.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../admin/data/repositories/admin_repository.dart';
 
 class AdminAppointmentsPage extends StatefulWidget {
   const AdminAppointmentsPage({super.key});
@@ -23,34 +23,78 @@ class _AdminAppointmentsPageState extends State<AdminAppointmentsPage> {
     end: Alignment.bottomRight,
   );
 
+  late final AdminRepository _adminRepository;
   String _activeFilter = 'All';
   static const _filters = ['All', 'Upcoming', 'Ongoing', 'Done', 'Cancelled'];
 
-  List<AppointmentEntity> get _filtered {
-    final all = MockData.appointments;
+  bool _loading = true;
+  String? _loadError;
+  List<Map<String, dynamic>> _appointments = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _adminRepository = sl<AdminRepository>();
+    _loadAppointments();
+  }
+
+  Future<void> _loadAppointments() async {
+    setState(() { _loading = true; _loadError = null; });
+    try {
+      final results = await _adminRepository.listAppointments(page: 1, limit: 100);
+      if (!mounted) return;
+      setState(() { _appointments = results; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() { _loadError = e is ApiErrorModel ? e.message : 'Failed to load appointments.'; });
+    } finally {
+      if (mounted) setState(() { _loading = false; });
+    }
+  }
+
+  String _status(Map<String, dynamic> a) =>
+      (a['status'] as String? ?? '').toLowerCase();
+
+  List<Map<String, dynamic>> get _filtered {
     return switch (_activeFilter) {
-      'Upcoming' =>
-        all.where((a) => a.status == AppointmentStatus.upcoming).toList(),
-      'Ongoing' =>
-        all.where((a) => a.status == AppointmentStatus.ongoing).toList(),
-      'Done' =>
-        all.where((a) => a.status == AppointmentStatus.completed).toList(),
-      'Cancelled' =>
-        all
-            .where((a) =>
-                a.status == AppointmentStatus.cancelled ||
-                a.status == AppointmentStatus.noShow)
-            .toList(),
-      _ => all,
+      'Upcoming'  => _appointments.where((a) => _status(a) == 'upcoming').toList(),
+      'Ongoing'   => _appointments.where((a) => _status(a) == 'ongoing').toList(),
+      'Done'      => _appointments.where((a) => _status(a) == 'completed').toList(),
+      'Cancelled' => _appointments.where((a) => _status(a) == 'cancelled' || _status(a) == 'no_show' || _status(a) == 'noshow').toList(),
+      _           => _appointments,
     };
   }
 
   @override
   Widget build(BuildContext context) {
-    final all = MockData.appointments;
-    final upcoming =
-        all.where((a) => a.status == AppointmentStatus.upcoming).length;
-    final filtered = _filtered;
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_loadError != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                const SizedBox(height: 12),
+                Text(_loadError!, textAlign: TextAlign.center, style: AppTextStyles.body),
+                const SizedBox(height: 16),
+                ElevatedButton(onPressed: _loadAppointments, child: const Text('Retry')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final upcoming   = _appointments.where((a) => _status(a) == 'upcoming').length;
+    final completed  = _appointments.where((a) => _status(a) == 'completed').length;
+    final cancelled  = _appointments.where((a) => _status(a) == 'cancelled' || _status(a) == 'no_show' || _status(a) == 'noshow').length;
+    final filtered   = _filtered;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -77,85 +121,55 @@ class _AdminAppointmentsPageState extends State<AdminAppointmentsPage> {
                           const Expanded(
                             child: Text(
                               'Appointments',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 26,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
                             ),
                           ),
-                          // Stats pills
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.25),
-                              borderRadius: BorderRadius.circular(
-                                  AppDimensions.radiusFull),
+                              borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
                             ),
                             child: Text(
                               '$upcoming upcoming',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                              ),
+                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      // Summary cards row
                       Row(
                         children: [
-                          _SummaryChip(
-                              icon: Icons.event_outlined,
-                              label: '${all.length} Total'),
+                          _SummaryChip(icon: Icons.event_outlined, label: '${_appointments.length} Total'),
                           const SizedBox(width: 10),
-                          _SummaryChip(
-                              icon: Icons.check_circle_outline_rounded,
-                              label:
-                                  '${all.where((a) => a.status == AppointmentStatus.completed).length} Done'),
+                          _SummaryChip(icon: Icons.check_circle_outline_rounded, label: '$completed Done'),
                           const SizedBox(width: 10),
-                          _SummaryChip(
-                              icon: Icons.cancel_outlined,
-                              label:
-                                  '${all.where((a) => a.status == AppointmentStatus.cancelled || a.status == AppointmentStatus.noShow).length} Cancelled'),
+                          _SummaryChip(icon: Icons.cancel_outlined, label: '$cancelled Cancelled'),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      // Filter chips
                       SizedBox(
                         height: 34,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: _filters.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 8),
+                          separatorBuilder: (_, __) => const SizedBox(width: 8),
                           itemBuilder: (_, i) {
                             final f = _filters[i];
                             final selected = _activeFilter == f;
                             return GestureDetector(
-                              onTap: () =>
-                                  setState(() => _activeFilter = f),
+                              onTap: () => setState(() => _activeFilter = f),
                               child: AnimatedContainer(
-                                duration:
-                                    const Duration(milliseconds: 200),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
+                                duration: const Duration(milliseconds: 200),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: selected
-                                      ? Colors.white
-                                      : Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(
-                                      AppDimensions.radiusFull),
+                                  color: selected ? Colors.white : Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
                                 ),
                                 child: Text(
                                   f,
                                   style: TextStyle(
-                                    color: selected
-                                        ? const Color(0xFFFF6B6B)
-                                        : Colors.white,
+                                    color: selected ? const Color(0xFFFF6B6B) : Colors.white,
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -178,15 +192,9 @@ class _AdminAppointmentsPageState extends State<AdminAppointmentsPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.event_busy_outlined,
-                        size: 56,
-                        color: AppColors.textTertiary.withOpacity(0.5)),
+                    Icon(Icons.event_busy_outlined, size: 56, color: AppColors.textTertiary.withOpacity(0.5)),
                     const SizedBox(height: 12),
-                    Text(
-                      'No appointments found',
-                      style: AppTextStyles.callout.copyWith(
-                          color: AppColors.textSecondary),
-                    ),
+                    Text('No appointments found', style: AppTextStyles.callout.copyWith(color: AppColors.textSecondary)),
                   ],
                 ),
               )
@@ -196,12 +204,10 @@ class _AdminAppointmentsPageState extends State<AdminAppointmentsPage> {
                 itemBuilder: (_, i) {
                   if (i == 0) {
                     return Padding(
-                      padding: const EdgeInsets.only(
-                          bottom: AppDimensions.paddingS),
+                      padding: const EdgeInsets.only(bottom: AppDimensions.paddingS),
                       child: Text(
                         '${filtered.length} appointments',
-                        style: AppTextStyles.footnote.copyWith(
-                            color: AppColors.textSecondary),
+                        style: AppTextStyles.footnote.copyWith(color: AppColors.textSecondary),
                       ),
                     );
                   }
@@ -223,23 +229,17 @@ class _SummaryChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.2),
-        borderRadius:
-            BorderRadius.circular(AppDimensions.radiusFull),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, color: Colors.white, size: 13),
           const SizedBox(width: 5),
-          Text(label,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500)),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -249,43 +249,76 @@ class _SummaryChip extends StatelessWidget {
 // ─── Appointment Card ─────────────────────────────────────────────────────────
 
 class _AdminApptCard extends StatelessWidget {
-  final AppointmentEntity appointment;
+  final Map<String, dynamic> appointment;
   const _AdminApptCard({required this.appointment});
+
+  String get _status => (appointment['status'] as String? ?? '').toLowerCase();
+
+  Color get _statusColor => switch (_status) {
+    'upcoming'  => AppColors.info,
+    'ongoing'   => AppColors.success,
+    'completed' => AppColors.textSecondary,
+    'cancelled' => AppColors.error,
+    _           => AppColors.warning,
+  };
+
+  String get _statusLabel => switch (_status) {
+    'upcoming'  => 'Upcoming',
+    'ongoing'   => 'Ongoing',
+    'completed' => 'Completed',
+    'cancelled' => 'Cancelled',
+    'no_show'   => 'No Show',
+    'noshow'    => 'No Show',
+    _           => _status,
+  };
+
+  String _readName(dynamic nested, String fallback) {
+    if (nested is! Map) return fallback;
+    // user objects have direct 'name'; psychologist objects have 'user.name'
+    final direct = nested['name'] as String?;
+    if (direct != null && direct.isNotEmpty) return direct;
+    final userSub = nested['user'];
+    if (userSub is Map) {
+      final sub = userSub['name'] as String?;
+      if (sub != null && sub.isNotEmpty) return sub;
+    }
+    return fallback;
+  }
+
+  String _readAvatar(dynamic nested) {
+    if (nested is Map) return nested['avatarUrl'] as String? ?? nested['profilePhoto'] as String? ?? '';
+    return '';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final psych = MockData.psychologists.firstWhere(
-      (p) => p.id == appointment.psychologistId,
-      orElse: () => MockData.psychologists.first,
-    );
-    final user = MockData.adminUsers.firstWhere(
-      (u) => u.id == appointment.userId,
-      orElse: () => MockData.adminUsers.first,
-    );
+    final userNested  = appointment['user'];
+    final psychNested = appointment['psychologist'];
+    final userName  = _readName(userNested, 'User');
+    final psychName = _readName(psychNested, 'Therapist');
+    final userAvatar  = _readAvatar(userNested);
+    final psychAvatar = _readAvatar(psychNested);
 
-    final statusColor = switch (appointment.status) {
-      AppointmentStatus.upcoming => AppColors.info,
-      AppointmentStatus.ongoing => AppColors.success,
-      AppointmentStatus.completed => AppColors.textSecondary,
-      AppointmentStatus.cancelled => AppColors.error,
-      AppointmentStatus.noShow => AppColors.warning,
-    };
+    final scheduledRaw = appointment['scheduledAt'] as String?;
+    final scheduledAt = scheduledRaw != null ? DateTime.tryParse(scheduledRaw) : null;
+
+    final totalCharge = appointment['totalCharge'] ?? appointment['totalAmount'];
+    final sessionType = (appointment['sessionType'] as String? ?? '').toLowerCase();
+    final durationMinutes = appointment['durationMinutes'] ?? appointment['duration'];
 
     return AppCard(
       margin: const EdgeInsets.only(bottom: AppDimensions.paddingM),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Status indicator bar
           Row(
             children: [
               Container(
                 width: 4,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius:
-                      BorderRadius.circular(AppDimensions.radiusFull),
+                  color: _statusColor,
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
                 ),
               ),
               const SizedBox(width: 12),
@@ -293,100 +326,67 @@ class _AdminApptCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _statusLabel(appointment.status),
-                      style: AppTextStyles.caption1.copyWith(
-                          color: statusColor, fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      _formatDateTime(appointment.scheduledAt),
-                      style: AppTextStyles.footnote
-                          .copyWith(color: AppColors.textSecondary),
-                    ),
+                    Text(_statusLabel,
+                        style: AppTextStyles.caption1.copyWith(color: _statusColor, fontWeight: FontWeight.w600)),
+                    if (scheduledAt != null)
+                      Text(_formatDateTime(scheduledAt),
+                          style: AppTextStyles.footnote.copyWith(color: AppColors.textSecondary)),
                   ],
                 ),
               ),
-              if (appointment.totalCharge != null)
+              if (totalCharge != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: AppColors.success.withOpacity(0.1),
-                    borderRadius:
-                        BorderRadius.circular(AppDimensions.radiusFull),
+                    borderRadius: BorderRadius.circular(AppDimensions.radiusFull),
                   ),
                   child: Text(
-                    '₹${appointment.totalCharge!.toStringAsFixed(0)}',
-                    style: AppTextStyles.caption1.copyWith(
-                        color: AppColors.success,
-                        fontWeight: FontWeight.w600),
+                    '₹${(totalCharge as num).toStringAsFixed(0)}',
+                    style: AppTextStyles.caption1.copyWith(color: AppColors.success, fontWeight: FontWeight.w600),
                   ),
                 ),
             ],
           ),
           const SizedBox(height: 12),
-          // User → Psychologist row
           Row(
             children: [
-              // User side
               Expanded(
                 child: Row(
                   children: [
-                    AppAvatar(
-                      imageUrl: user.avatarUrl,
-                      radius: 18,
-                      initials: user.name[0],
-                    ),
+                    AppAvatar(imageUrl: userAvatar.isNotEmpty ? userAvatar : null, radius: 18, initials: userName[0]),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(user.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTextStyles.caption1.copyWith(
-                                  fontWeight: FontWeight.w600)),
-                          Text('User',
-                              style: AppTextStyles.caption2.copyWith(
-                                  color: AppColors.textSecondary)),
+                          Text(userName, overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.caption1.copyWith(fontWeight: FontWeight.w600)),
+                          Text('User', style: AppTextStyles.caption2.copyWith(color: AppColors.textSecondary)),
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-              // Arrow
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 8),
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceSecondary,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.arrow_forward_rounded,
-                    size: 14, color: AppColors.textSecondary),
+                decoration: const BoxDecoration(color: AppColors.surfaceSecondary, shape: BoxShape.circle),
+                child: const Icon(Icons.arrow_forward_rounded, size: 14, color: AppColors.textSecondary),
               ),
-              // Psychologist side
               Expanded(
                 child: Row(
                   children: [
-                    AppAvatar(
-                      imageUrl: psych.avatarUrl,
-                      radius: 18,
-                      initials: psych.name[0],
-                    ),
+                    AppAvatar(imageUrl: psychAvatar.isNotEmpty ? psychAvatar : null, radius: 18, initials: psychName[0]),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(psych.name,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppTextStyles.caption1.copyWith(
-                                  fontWeight: FontWeight.w600)),
-                          Text('Therapist',
-                              style: AppTextStyles.caption2.copyWith(
-                                  color: AppColors.textSecondary)),
+                          Text(psychName, overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.caption1.copyWith(fontWeight: FontWeight.w600)),
+                          Text('Therapist', style: AppTextStyles.caption2.copyWith(color: AppColors.textSecondary)),
                         ],
                       ),
                     ),
@@ -395,35 +395,24 @@ class _AdminApptCard extends StatelessWidget {
               ),
             ],
           ),
-          if (appointment.sessionType != null) ...[
+          if (sessionType.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(
               children: [
                 Icon(
-                  appointment.sessionType == SessionType.video
-                      ? Icons.videocam_outlined
-                      : Icons.phone_outlined,
-                  size: 13,
-                  color: AppColors.textSecondary,
+                  sessionType == 'video' ? Icons.videocam_outlined : Icons.phone_outlined,
+                  size: 13, color: AppColors.textSecondary,
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  appointment.sessionType == SessionType.video
-                      ? 'Video Call'
-                      : 'Voice Call',
-                  style: AppTextStyles.caption2
-                      .copyWith(color: AppColors.textSecondary),
+                  sessionType == 'video' ? 'Video Call' : 'Voice Call',
+                  style: AppTextStyles.caption2.copyWith(color: AppColors.textSecondary),
                 ),
-                if (appointment.durationMinutes != null) ...[
+                if (durationMinutes != null) ...[
                   const SizedBox(width: 10),
-                  Icon(Icons.timer_outlined,
-                      size: 13, color: AppColors.textSecondary),
+                  Icon(Icons.timer_outlined, size: 13, color: AppColors.textSecondary),
                   const SizedBox(width: 4),
-                  Text(
-                    '${appointment.durationMinutes} min',
-                    style: AppTextStyles.caption2
-                        .copyWith(color: AppColors.textSecondary),
-                  ),
+                  Text('$durationMinutes min', style: AppTextStyles.caption2.copyWith(color: AppColors.textSecondary)),
                 ],
               ],
             ),
@@ -433,24 +422,10 @@ class _AdminApptCard extends StatelessWidget {
     );
   }
 
-  String _statusLabel(AppointmentStatus s) {
-    return switch (s) {
-      AppointmentStatus.upcoming => 'Upcoming',
-      AppointmentStatus.ongoing => 'Ongoing',
-      AppointmentStatus.completed => 'Completed',
-      AppointmentStatus.cancelled => 'Cancelled',
-      AppointmentStatus.noShow => 'No Show',
-    };
-  }
-
   String _formatDateTime(DateTime dt) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final h = dt.hour.toString().padLeft(2, '0');
     final m = dt.minute.toString().padLeft(2, '0');
     return '${dt.day} ${months[dt.month - 1]} · $h:$m';
   }
 }
-

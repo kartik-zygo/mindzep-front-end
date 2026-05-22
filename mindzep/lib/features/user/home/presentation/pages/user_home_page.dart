@@ -4,12 +4,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/network/api_error_model.dart';
+import '../../../../../core/network/pagination.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/date_utils.dart';
 import '../../../../../core/widgets/app_avatar.dart';
-import '../../../../../core/widgets/app_snackbar.dart';
 import '../../../../../injection/injection_container.dart';
+import '../../../../user/appointments/data/models/appointment_models.dart';
 import '../../../../user/appointments/data/repositories/appointment_repository.dart';
 import '../../../../user/blog/data/models/blog_models.dart';
 import '../../../../user/blog/data/repositories/blog_repository.dart';
@@ -19,7 +19,6 @@ import '../bloc/psychologist_list_bloc.dart';
 import '../bloc/psychologist_list_event_state.dart';
 import '../../../../../core/widgets/app_drawer.dart';
 import '../widgets/mood_sheet.dart';
-import '../widgets/psychologist_card.dart';
 
 class UserHomePage extends StatefulWidget {
   const UserHomePage({super.key});
@@ -44,11 +43,11 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
   late Animation<double> _ring1, _ring2, _ring3;
 
   static const _moods = [
-    {'emoji': '😰', 'label': 'Anxious', 'color': 0xFFFFF3CD, 'ring': 0xFFF59E0B},
-    {'emoji': '😢', 'label': 'Sad', 'color': 0xFFE8F4FD, 'ring': 0xFF3B82F6},
-    {'emoji': '😤', 'label': 'Stressed', 'color': 0xFFFCE4EC, 'ring': 0xFFEF4444},
-    {'emoji': '🙂', 'label': 'Okay', 'color': 0xFFE8F5E9, 'ring': 0xFF10B981},
-    {'emoji': '😊', 'label': 'Good', 'color': 0xFFF3E5F5, 'ring': 0xFF8B5CF6},
+    {'emoji': '😰', 'label': 'Anxious', 'color': 0xFFFFF3CD, 'ring': 0xFFF59E0B, 'score': 1, 'apiTag': 'anxious'},
+    {'emoji': '😢', 'label': 'Sad', 'color': 0xFFE8F4FD, 'ring': 0xFF3B82F6, 'score': 2, 'apiTag': 'sad'},
+    {'emoji': '😤', 'label': 'Stressed', 'color': 0xFFFCE4EC, 'ring': 0xFFEF4444, 'score': 3, 'apiTag': 'stressed'},
+    {'emoji': '🙂', 'label': 'Okay', 'color': 0xFFE8F5E9, 'ring': 0xFF10B981, 'score': 4, 'apiTag': 'calm'},
+    {'emoji': '😊', 'label': 'Good', 'color': 0xFFF3E5F5, 'ring': 0xFF8B5CF6, 'score': 5, 'apiTag': 'happy'},
   ];
 
   @override
@@ -73,7 +72,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
 
     UserProfileModel? profile;
     WalletSummaryModel? wallet;
-    dynamic appointmentsResponse;
+    PaginatedResponse<AppointmentModel>? appointmentsResponse;
     List<BlogModel>? blogs;
 
     try {
@@ -157,7 +156,6 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
           _buildBroadcastBanner(context),
           _buildTopTherapistsSection(context),
           _buildBlogSection(context),
-          _buildDailyTip(),
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
@@ -278,36 +276,57 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('How are you feeling?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                Row(
+                  children: [
+                    Container(
+                      width: 4, height: 18,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF5E5CE6), Color(0xFF8B7CF6)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('How are you feeling?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                  ],
+                ),
                 const Text('Tap to share', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               ],
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 82,
+              height: 96,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _moods.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 10),
                 itemBuilder: (_, i) {
                   final mood = _moods[i];
+                  final ringColor = Color(mood['ring'] as int);
                   return GestureDetector(
                     onTap: () => MoodSheet.show(context, mood),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                       decoration: BoxDecoration(
                         color: Color(mood['color'] as int),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8)],
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: ringColor.withValues(alpha: 0.3), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(color: ringColor.withValues(alpha: 0.2), blurRadius: 12, offset: const Offset(0, 4)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4),
+                        ],
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(mood['emoji'] as String, style: const TextStyle(fontSize: 26)),
-                          const SizedBox(height: 4),
+                          Text(mood['emoji'] as String, style: const TextStyle(fontSize: 28)),
+                          const SizedBox(height: 5),
                           Text(
                             mood['label'] as String,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF5E5CE6)),
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: ringColor, letterSpacing: 0.2),
                           ),
                         ],
                       ),
@@ -519,7 +538,23 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Top Therapists', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                Row(
+                  children: [
+                    Container(
+                      width: 4, height: 18,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF5E5CE6), Color(0xFF8B7CF6)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('Top Therapists', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                  ],
+                ),
                 GestureDetector(
                   onTap: () => context.go(RouteNames.userConsult),
                   child: Row(children: [
@@ -538,15 +573,19 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                 separatorBuilder: (_, __) => const SizedBox(width: 12),
                 itemBuilder: (_, i) {
                   final p = top[i];
+                  final isAvailable = p.status == AvailabilityStatus.available;
                   return GestureDetector(
                     onTap: () => context.push(RouteNames.psychologistDetail, extra: p),
                     child: Container(
-                      width: 160,
-                      padding: const EdgeInsets.all(12),
+                      width: 168,
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12)],
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFF5E5CE6).withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 6)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2)),
+                        ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -558,48 +597,50 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(p.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E)), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  margin: const EdgeInsets.only(top: 3),
-                                  decoration: BoxDecoration(
-                                    color: p.status == AvailabilityStatus.available
-                                        ? const Color(0xFFE8FFF1)
-                                        : const Color(0xFFF2F2F7),
-                                    borderRadius: BorderRadius.circular(8),
+                                const SizedBox(height: 3),
+                                Row(children: [
+                                  Container(
+                                    width: 6, height: 6,
+                                    decoration: BoxDecoration(
+                                      color: isAvailable ? const Color(0xFF34C759) : const Color(0xFF8E8E93),
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
-                                  child: Text(
-                                    p.status == AvailabilityStatus.available
-                                        ? 'Available'
-                                        : 'Offline',
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    isAvailable ? 'Available' : 'Offline',
                                     style: TextStyle(
-                                      fontSize: 9,
-                                      color: p.status == AvailabilityStatus.available
-                                          ? const Color(0xFF34C759)
-                                          : const Color(0xFF8E8E93),
+                                      fontSize: 10,
+                                      color: isAvailable ? const Color(0xFF34C759) : const Color(0xFF8E8E93),
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                ),
+                                ]),
                               ],
                             )),
                           ]),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 9),
                           Text(
-                            p.specializations.isNotEmpty
-                                ? p.specializations.first
-                                : p.specialization,
-                            style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93)),
+                            p.specializations.isNotEmpty ? p.specializations.first : p.specialization,
+                            style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93), fontWeight: FontWeight.w500),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 6),
-                          Row(children: [
-                            const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFF9500)),
-                            const SizedBox(width: 3),
-                            Text(p.ratingAverage.toStringAsFixed(1), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                            const Spacer(),
-                            Text('₹${p.ratePerMinute}/min', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF5E5CE6))),
-                          ]),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF4F4FF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(children: [
+                              const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFF9500)),
+                              const SizedBox(width: 3),
+                              Text(p.ratingAverage.toStringAsFixed(1), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1C1C1E))),
+                              const Spacer(),
+                              Text('₹${p.ratePerMinute}/m', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF5E5CE6))),
+                            ]),
+                          ),
                         ],
                       ),
                     ),
@@ -630,7 +671,23 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('From Our Experts', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                Row(
+                  children: [
+                    Container(
+                      width: 4, height: 18,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('From Our Experts', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                  ],
+                ),
                 GestureDetector(
                   onTap: () => context.push(RouteNames.userBlogList),
                   child: Row(children: [
@@ -711,19 +768,26 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                       width: 200,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10)],
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFF30B0C7).withValues(alpha: 0.1), blurRadius: 14, offset: const Offset(0, 5)),
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 5, offset: const Offset(0, 1)),
+                        ],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           ClipRRect(
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                             child: Container(
-                              height: 95,
+                              height: 98,
                               decoration: const BoxDecoration(
-                                gradient: LinearGradient(colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)]),
+                                gradient: LinearGradient(
+                                  colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
                               ),
                               child: blog.coverImageUrl != null && blog.coverImageUrl!.isNotEmpty
                                   ? Image.network(blog.coverImageUrl!, fit: BoxFit.cover, width: double.infinity, errorBuilder: (_, __, ___) => const SizedBox())
@@ -731,19 +795,32 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                             ),
                           ),
                           Padding(
-                            padding: const EdgeInsets.all(10),
+                            padding: const EdgeInsets.fromLTRB(11, 10, 11, 12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(color: const Color(0xFFEEF0FF), borderRadius: BorderRadius.circular(6)),
-                                  child: Text(blog.category, style: const TextStyle(color: Color(0xFF5E5CE6), fontSize: 9, fontWeight: FontWeight.w700)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                  decoration: BoxDecoration(color: const Color(0xFFEEF0FF), borderRadius: BorderRadius.circular(7)),
+                                  child: Text(blog.category, style: const TextStyle(color: Color(0xFF5E5CE6), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.3)),
                                 ),
-                                const SizedBox(height: 5),
-                                Text(blog.title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E)), maxLines: 2, overflow: TextOverflow.ellipsis),
-                                const SizedBox(height: 5),
-                                Text(blog.psychologistName, style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93))),
+                                const SizedBox(height: 6),
+                                Text(blog.title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E), height: 1.3), maxLines: 2, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 6),
+                                Row(children: [
+                                  Container(
+                                    width: 16, height: 16,
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)]),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Center(
+                                      child: Text(blog.psychologistName.isNotEmpty ? blog.psychologistName[0] : '?', style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Expanded(child: Text(blog.psychologistName, style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93), fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                ]),
                               ],
                             ),
                           ),
@@ -756,47 +833,6 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
               ),
             ],
           ],
-        ),
-      ),
-    );
-  }
-
-  // ── Daily Tip ──────────────────────────────────────────────────────────────
-
-  Widget _buildDailyTip() {
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFFFFF8ED), Color(0xFFFFF3CD)]),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFFFE082)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 48, height: 48,
-                decoration: BoxDecoration(color: const Color(0xFFFF9500).withOpacity(0.15), borderRadius: BorderRadius.circular(14)),
-                child: const Text('🌟', style: TextStyle(fontSize: 26), textAlign: TextAlign.center),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Daily Tip', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFFF9500), letterSpacing: 0.5)),
-                    SizedBox(height: 4),
-                    Text(
-                      'Take 3 deep breaths before responding to stressful messages. It gives your brain time to think.',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF5C4500), height: 1.4),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -826,19 +862,30 @@ class _QuickActionCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           gradient: LinearGradient(colors: gradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: gradient.first.withOpacity(0.35), blurRadius: 16, offset: const Offset(0, 4))],
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(color: gradient.first.withValues(alpha: 0.4), blurRadius: 20, offset: const Offset(0, 7)),
+            BoxShadow(color: gradient.first.withValues(alpha: 0.15), blurRadius: 6, offset: const Offset(0, 2)),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(emoji, style: const TextStyle(fontSize: 28)),
-            const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
-            Text(sublabel, style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 12)),
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Center(child: Text(emoji, style: const TextStyle(fontSize: 24))),
+            ),
+            const SizedBox(height: 12),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: -0.3)),
+            const SizedBox(height: 2),
+            Text(sublabel, style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 12)),
           ],
         ),
       ),
@@ -857,19 +904,41 @@ class _StatBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8)],
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(height: 4),
-            Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
-            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF8E8E93))),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: 0.14), blurRadius: 14, offset: const Offset(0, 5)),
+            BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 1)),
           ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Column(
+            children: [
+              Container(
+                height: 3,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [color, color.withValues(alpha: 0.5)]),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
+                      child: Icon(icon, size: 15, color: color),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E))),
+                    Text(label, style: const TextStyle(fontSize: 10, color: Color(0xFF8E8E93), fontWeight: FontWeight.w500)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

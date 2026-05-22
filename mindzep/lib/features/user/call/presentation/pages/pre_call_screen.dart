@@ -81,7 +81,12 @@ class _PreCallScreenState extends State<PreCallScreen> {
       },
       builder: (context, state) {
         final isConnecting = state is CallConnecting;
-        final hasNoBalance = _walletLoaded && _walletBalance <= 0;
+        // Only gate on empty wallet when there is no booked appointment.
+        // With a valid appointment the call can proceed (free minutes apply;
+        // billing tracks but the auto-end guard requires wallet > 0).
+        final hasNoBalance = _walletLoaded &&
+            _walletBalance <= 0 &&
+            !widget.payload.hasAppointment;
         final callsDisabled = isConnecting || hasNoBalance;
 
         return Scaffold(

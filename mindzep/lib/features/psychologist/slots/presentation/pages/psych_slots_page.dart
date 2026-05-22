@@ -24,8 +24,8 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
   final Set<String> _updatingSlotIds = <String>{};
   List<SlotEntity> _allSlots = const <SlotEntity>[];
 
-  // Generate 7-day strip starting from today
-  late final List<DateTime> _weekDays;
+  // 14-day strip starting from today so near-future slots are always reachable.
+  late List<DateTime> _weekDays;
 
   @override
   void initState() {
@@ -33,8 +33,25 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
     _psychologistRepository = sl<PsychologistRepository>();
     final today = DateTime.now();
     _selectedDay = today;
-    _weekDays = List.generate(7, (i) => today.add(Duration(days: i)));
+    _weekDays = List.generate(14, (i) => today.add(Duration(days: i)));
     _loadSlots();
+  }
+
+  /// Ensures [day] is in the date strip and selects it.
+  void _jumpToDay(DateTime day) {
+    final target = DateTime(day.year, day.month, day.day);
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    // Extend strip if the target day is beyond current range.
+    final lastDay = _weekDays.last;
+    if (target.isAfter(lastDay)) {
+      final diff = target.difference(today).inDays + 1;
+      setState(() {
+        _weekDays = List.generate(diff, (i) => today.add(Duration(days: i)));
+        _selectedDay = target;
+      });
+    } else {
+      setState(() => _selectedDay = target);
+    }
   }
 
   Future<void> _loadSlots() async {
@@ -480,7 +497,7 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
         : const TimeOfDay(hour: 9, minute: 0);
 
     TimeOfDay selectedTime = defaultTime;
-    final durationCtrl = TextEditingController(text: '45');
+    String durationText = '45';
     bool isSubmitting = false;
 
     await showDialog<void>(
@@ -509,8 +526,9 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
                   label: Text('Time: ${selectedTime.format(dialogContext)}'),
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: durationCtrl,
+                TextFormField(
+                  initialValue: durationText,
+                  onChanged: (v) => durationText = v,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'Duration (minutes)',
@@ -528,7 +546,7 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
                 onPressed: isSubmitting
                     ? null
                     : () async {
-                        final duration = int.tryParse(durationCtrl.text.trim());
+                        final duration = int.tryParse(durationText.trim());
                         if (duration == null || duration <= 0) {
                           AppSnackbar.show(
                             this.context,
@@ -579,15 +597,33 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
                         } catch (e) {
                           debugPrint('[MindZep] PsychSlots createSlot error: $e');
                           if (!mounted) return;
-                          final msg = e is ApiErrorModel ? e.message : 'Unable to add slot right now.';
-                          AppSnackbar.show(
-                            this.context,
-                            message: msg,
-                            type: SnackbarType.error,
-                          );
-                          setDialogState(() {
-                            isSubmitting = false;
-                          });
+                          final isConflict =
+                              e is ApiErrorModel && e.statusCode == 409;
+                          final msg = e is ApiErrorModel
+                              ? e.message
+                              : 'Unable to add slot right now.';
+
+                          if (isConflict) {
+                            // Close dialog, jump to the conflicting day, and
+                            // refresh so the existing overlapping slot is visible.
+                            Navigator.pop(dialogContext);
+                            _jumpToDay(startTime);
+                            AppSnackbar.show(
+                              this.context,
+                              message: msg,
+                              type: SnackbarType.error,
+                            );
+                            await _loadSlots();
+                          } else {
+                            AppSnackbar.show(
+                              this.context,
+                              message: msg,
+                              type: SnackbarType.error,
+                            );
+                            setDialogState(() {
+                              isSubmitting = false;
+                            });
+                          }
                         }
                       },
                 child: const Text('Add Slot'),
@@ -598,7 +634,6 @@ class _PsychSlotsPageState extends State<PsychSlotsPage> {
       ),
     );
 
-    durationCtrl.dispose();
   }
 }
 

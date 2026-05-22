@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/router/route_names.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../data/models/user_models.dart';
+import '../../../data/repositories/user_repository.dart';
 
 // ─── Mood Config ──────────────────────────────────────────────────────────────
 
@@ -74,6 +77,25 @@ class _MoodSheetContent extends StatefulWidget {
 class _MoodSheetContentState extends State<_MoodSheetContent> {
   bool _showBreathing = false;
   bool _logged = false;
+  bool _logging = false;
+
+  Future<void> _logMood() async {
+    if (_logged || _logging) return;
+    setState(() => _logging = true);
+    final score = (widget.mood['score'] as int?) ?? 3;
+    final tag = (widget.mood['apiTag'] as String?) ?? (widget.mood['label'] as String?)?.toLowerCase();
+    try {
+      await sl<UserRepository>().createMood(MoodCreateRequest(score: score, tag: tag));
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _logging = false;
+      _logged = true;
+    });
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -105,13 +127,9 @@ class _MoodSheetContentState extends State<_MoodSheetContent> {
                     key: const ValueKey('main'),
                     label: label, emoji: emoji, bgColor: bgColor, cfg: cfg,
                     logged: _logged,
+                    logging: _logging,
                     onBreath: () => setState(() => _showBreathing = true),
-                    onLog: () {
-                      setState(() => _logged = true);
-                      Future.delayed(const Duration(milliseconds: 1200), () {
-                        if (mounted) Navigator.of(context).pop();
-                      });
-                    },
+                    onLog: _logMood,
                     onTalkNow: () {
                       Navigator.of(context).pop();
                       context.go(RouteNames.userConsult);
@@ -134,12 +152,13 @@ class _MainView extends StatelessWidget {
   final Color bgColor;
   final _MoodConfig cfg;
   final bool logged;
+  final bool logging;
   final VoidCallback onBreath, onLog, onTalkNow, onReadArticle;
 
   const _MainView({
     super.key,
     required this.label, required this.emoji, required this.bgColor,
-    required this.cfg, required this.logged,
+    required this.cfg, required this.logged, this.logging = false,
     required this.onBreath, required this.onLog, required this.onTalkNow, required this.onReadArticle,
   });
 
@@ -257,7 +276,7 @@ class _MainView extends StatelessWidget {
 
           // Log button
           GestureDetector(
-            onTap: logged ? null : onLog,
+            onTap: (logged || logging) ? null : onLog,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
               width: double.infinity,
@@ -272,10 +291,16 @@ class _MainView extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(logged ? Icons.check_circle_rounded : Icons.add_rounded, color: Colors.white, size: 20),
+                  if (logging)
+                    const SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  else
+                    Icon(logged ? Icons.check_circle_rounded : Icons.add_rounded, color: Colors.white, size: 20),
                   const SizedBox(width: 8),
                   Text(
-                    logged ? 'Mood Logged! 🎉' : 'Log "$label" Mood',
+                    logged ? 'Mood Logged! 🎉' : (logging ? 'Logging...' : 'Log "$label" Mood'),
                     style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16),
                   ),
                 ],

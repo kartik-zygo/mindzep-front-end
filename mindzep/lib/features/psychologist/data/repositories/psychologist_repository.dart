@@ -170,8 +170,12 @@ class PsychologistRepository {
         final payload = JsonReaders.asMap(json);
         final data = ApiResponseParser.extractData(payload);
 
+        final dataMap = JsonReaders.asMap(data);
+        final slotsList = dataMap.containsKey('slots')
+            ? JsonReaders.asMapList(dataMap['slots'])
+            : JsonReaders.asMapList(data);
         return PaginatedResponse<SlotModel>(
-          items: JsonReaders.asMapList(data).map(SlotModel.fromJson).toList(),
+          items: slotsList.map(SlotModel.fromJson).toList(),
           pagination: ApiResponseParser.extractPagination(payload),
         );
       },

@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
@@ -6,6 +7,7 @@ import '../../../../../core/entities/entities.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
 import '../../../../../injection/injection_container.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../user/blog/data/models/blog_models.dart';
 import '../../../../user/blog/data/repositories/blog_repository.dart';
 
@@ -27,9 +29,17 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
 
   final _titleCtrl = TextEditingController();
   final _contentCtrl = TextEditingController();
-  String _selectedCategory = 'Mindfulness';
+  String _selectedCategory = 'mindfulness';
 
-  static const _categories = ['Mindfulness', 'Anxiety', 'Depression', 'Relationships', 'Burnout', 'Sleep'];
+  // Backend DB enum values — mental_health & self_care omitted because the
+  // PostgreSQL enum rejects them despite Joi allowing them (backend mismatch).
+  static const _categories = [
+    'anxiety', 'depression', 'relationships',
+    'mindfulness', 'trauma', 'addiction', 'parenting', 'career',
+  ];
+
+  static String _categoryLabel(String value) =>
+      value.replaceAll('_', ' ').split(' ').map((w) => w[0].toUpperCase() + w.substring(1)).join(' ');
 
   @override
   void initState() {
@@ -86,6 +96,15 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
       return;
     }
 
+    if (body.length < 100) {
+      AppSnackbar.show(
+        context,
+        message: 'Content must be at least 100 characters (currently ${body.length}).',
+        type: SnackbarType.error,
+      );
+      return;
+    }
+
     setState(() {
       _submitting = true;
     });
@@ -115,11 +134,26 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
         _contentCtrl.clear();
       });
       await _loadBlogs();
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      String errorMsg = 'Unable to save blog right now.';
+      if (e is ApiErrorModel) {
+        final errors = e.details?['errors'];
+        if (errors is List && errors.isNotEmpty) {
+          errorMsg = errors
+              .map((err) {
+                final field = err['field']?.toString() ?? '';
+                final msg = err['message']?.toString() ?? '';
+                return field.isNotEmpty ? '$field: $msg' : msg;
+              })
+              .join('\n');
+        } else {
+          errorMsg = e.message;
+        }
+      }
       AppSnackbar.show(
         context,
-        message: 'Unable to save blog right now.',
+        message: errorMsg,
         type: SnackbarType.error,
       );
     } finally {
@@ -253,7 +287,7 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
                             boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6)],
                           ),
                           child: Text(
-                            cat,
+                            _categoryLabel(cat),
                             style: TextStyle(
                               fontSize: 12, fontWeight: FontWeight.w500,
                               color: isSel ? Colors.white : const Color(0xFF1C1C1E),
@@ -435,11 +469,11 @@ class _BlogCard extends StatelessWidget {
   // Category emoji mapping
   static String _categoryEmoji(String category) {
     const map = {
-      'Anxiety': '😟', 'Depression': '💙', 'Relationships': '💑',
-      'Stress': '😤', 'Sleep': '😴', 'Trauma': '🧠',
-      'Mindfulness': '🧘', 'Burnout': '🔥',
+      'anxiety': '😟', 'depression': '💙',
+      'relationships': '💑', 'mindfulness': '🧘',
+      'trauma': '💔', 'addiction': '🔗', 'parenting': '👨‍👩‍👧', 'career': '💼',
     };
-    return map[category] ?? '📝';
+    return map[category.toLowerCase()] ?? '📝';
   }
 
   @override

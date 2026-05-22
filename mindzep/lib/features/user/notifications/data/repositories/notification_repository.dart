@@ -12,9 +12,13 @@ class NotificationRepository {
   Future<List<NotificationModel>> listNotifications() {
     return _dioClient.get<List<NotificationModel>>(
       ApiEndpoints.notifications,
-      parser: (json) => JsonReaders.asMapList(json)
-          .map(NotificationModel.fromJson)
-          .toList(),
+      parser: (json) {
+        final m = JsonReaders.asMap(json);
+        final list = m.containsKey('notifications') ? m['notifications'] : json;
+        return JsonReaders.asMapList(list)
+            .map(NotificationModel.fromJson)
+            .toList();
+      },
     );
   }
 
@@ -28,6 +32,20 @@ class NotificationRepository {
   Future<void> markOneRead(String notificationId) {
     return _dioClient.put<void>(
       ApiEndpoints.notificationRead(notificationId),
+      parser: (_) => null,
+    );
+  }
+
+  Future<void> deleteNotification(String notificationId) {
+    return _dioClient.delete<void>(
+      ApiEndpoints.notificationDelete(notificationId),
+      parser: (_) => null,
+    );
+  }
+
+  Future<void> clearAll() {
+    return _dioClient.delete<void>(
+      ApiEndpoints.notificationsClearAll,
       parser: (_) => null,
     );
   }

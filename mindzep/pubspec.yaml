@@ -68,6 +68,9 @@ dependencies:
   # Media
   image_picker: ^1.1.1
 
+  # Payment gateway
+  flutter_cashfree_pg_sdk: ^2.3.4+51
+
   # Utilities
   dartz: ^0.10.1
   get_it: ^7.7.0
