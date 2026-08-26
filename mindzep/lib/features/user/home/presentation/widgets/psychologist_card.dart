@@ -1,7 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/entities/entities.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/currency_utils.dart';
@@ -175,11 +174,6 @@ class PsychologistCard extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (psychologist.freeMinutes > 0)
-                        Text(
-                          '• ${psychologist.freeMinutes} min free',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF34C759), fontWeight: FontWeight.w500),
-                        ),
                     ],
                   ),
                   const Spacer(),

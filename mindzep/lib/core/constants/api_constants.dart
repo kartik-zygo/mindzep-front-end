@@ -12,14 +12,14 @@ class ApiConstants {
 
   /// Base URL of the REST backend (no trailing slash).
   static const String apiBaseUrl =
-      'https://ed94-122-184-152-82.ngrok-free.app';
+      'http://150.241.245.88:8090';
 
   /// Base URL used for Socket.IO connections.
   /// Defaults to [apiBaseUrl] when left empty.
   static const String socketBaseUrl =
-      'https://ed94-122-184-152-82.ngrok-free.app';
+      'http://150.241.245.88:8090';
 
   /// Agora App ID — must match the certificate used by the backend to sign
   /// tokens.  Set AGORA_APP_ID in .env or pass --dart-define=AGORA_APP_ID=<id>.
-  static const String agoraAppId = '';
+  static const String agoraAppId = 'bd97b1722a244db68aab6e3ee1fca0c4';
 }

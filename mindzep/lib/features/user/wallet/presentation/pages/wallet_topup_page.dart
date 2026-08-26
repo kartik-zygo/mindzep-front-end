@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
 import 'package:flutter_cashfree_pg_sdk/utils/cfexceptions.dart';
@@ -7,6 +8,7 @@ import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/widgets/app_button.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../data/repositories/user_repository.dart';
 import '../../../payments/data/models/payment_models.dart';
 import '../../../payments/data/repositories/payment_repository.dart';
 import '../../../payments/data/services/cashfree_payment_service.dart';
@@ -21,18 +23,29 @@ class WalletTopUpPage extends StatefulWidget {
 
 class _WalletTopUpPageState extends State<WalletTopUpPage> {
   late final PaymentRepository _paymentRepository;
+  late final UserRepository _userRepository;
   late final CashfreePaymentService _cashfreeService;
 
   bool _isProcessing = false;
   String _statusMessage = '';
   double _selectedAmount = 500;
 
+  /// Wallet balance captured before the checkout opens. Used to detect the
+  /// webhook credit when /payments/verify lags behind the SDK callback.
+  double? _balanceBeforePayment;
+
+  /// Cashfree order id of the in-flight payment, for re-verify polling.
+  String? _lastOrderId;
+
   static const _presets = [200.0, 500.0, 1000.0, 2000.0];
+  static const _webhookPollInterval = Duration(seconds: 2);
+  static const _webhookPollAttempts = 7; // ~15 seconds total
 
   @override
   void initState() {
     super.initState();
     _paymentRepository = sl<PaymentRepository>();
+    _userRepository = sl<UserRepository>();
     _cashfreeService = sl<CashfreePaymentService>();
 
     _cashfreeService.setCallbacks(
@@ -42,6 +55,8 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
   }
 
   // ── Cashfree callback: payment confirmed by SDK ──────────────────────────
+  // NOTE: this is only the SDK's word — the wallet is credited exclusively
+  // from backend verify/webhook data, never from this callback alone.
   void _onPaymentVerified(String orderId) {
     _verifyWithBackend(orderId);
   }
@@ -55,7 +70,8 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     });
     AppSnackbar.show(
       context,
-      message: errorResponse.getMessage() ?? 'Payment failed. Please try again.',
+      message:
+          errorResponse.getMessage() ?? 'Payment failed. Please try again.',
       type: SnackbarType.error,
     );
   }
@@ -223,20 +239,6 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
               isLoading: _isProcessing,
               onPressed: _startTopUp,
             ),
-            const SizedBox(height: AppDimensions.paddingS),
-            // ── Temporary dev bypass ─────────────────────────────────────────
-            // Remove this button before production release.
-            TextButton(
-              onPressed: _isProcessing ? null : _bypassTopUp,
-              child: Text(
-                '[Dev] Skip Payment Gateway',
-                style: AppTextStyles.caption1.copyWith(
-                  color: AppColors.textTertiary,
-                  decoration: TextDecoration.underline,
-                  decorationColor: AppColors.textTertiary,
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -252,6 +254,14 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
     });
 
     try {
+      // Snapshot the balance so the webhook credit is detectable later.
+      try {
+        final wallet = await _userRepository.getMyWallet();
+        _balanceBeforePayment = wallet.balance;
+      } catch (_) {
+        _balanceBeforePayment = null;
+      }
+
       final orderData = await _paymentRepository.createOrder(
         CreateOrderRequest(
           type: 'wallet_topup',
@@ -261,6 +271,7 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
 
       setState(() => _statusMessage = 'Opening payment gateway...');
 
+      _lastOrderId = orderData.orderId;
       _cashfreeService.launchDropCheckout(
         paymentSessionId: orderData.paymentSessionId,
         cashfreeOrderId: orderData.orderId,
@@ -293,6 +304,10 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
   }
 
   // ── Backend verification after SDK success ─────────────────────────────────
+  //
+  // Webhook-first: /payments/verify may briefly report "not paid" because the
+  // Cashfree webhook can land 1–5 s after the SDK callback. Poll the wallet
+  // for up to ~15 s before showing anything that looks like a failure.
 
   Future<void> _verifyWithBackend(String cashfreeOrderId) async {
     if (!mounted) return;
@@ -301,46 +316,85 @@ class _WalletTopUpPageState extends State<WalletTopUpPage> {
       _statusMessage = 'Verifying payment...';
     });
 
+    var confirmed = false;
     try {
-      await _paymentRepository.verifyPayment(
+      final result = await _paymentRepository.verifyPayment(
         VerifyPaymentRequest(cashfreeOrderId: cashfreeOrderId),
       );
+      confirmed = result.isPaid;
+      if (kDebugMode) {
+        debugPrint(
+            '[WalletTopUp] verify → status="${result.status}" paid=$confirmed');
+      }
+    } catch (error) {
+      if (kDebugMode) debugPrint('[WalletTopUp] verify failed: $error');
+    }
 
-      if (!mounted) return;
+    if (!confirmed) {
+      confirmed = await _pollWalletForCredit();
+    }
+
+    if (!mounted) return;
+
+    if (confirmed) {
       AppSnackbar.show(
         context,
         message: '₹${_selectedAmount.toInt()} added to your wallet!',
         type: SnackbarType.success,
       );
-      // Pop with true so the wallet page knows to refresh
       Navigator.of(context).pop(true);
-    } catch (error) {
-      if (!mounted) return;
+    } else {
       setState(() {
         _isProcessing = false;
         _statusMessage = '';
       });
       AppSnackbar.show(
         context,
-        message:
-            'Payment received but wallet update is delayed. '
+        message: 'Payment received but wallet update is delayed. '
             'Balance will reflect shortly.',
         type: SnackbarType.warning,
       );
+      // Pop with true so the wallet page refetches — the webhook usually
+      // lands moments later.
+      Navigator.of(context).pop(true);
     }
   }
 
-  // ── Dev bypass: simulate top-up without actual payment ────────────────────
+  /// Polls the wallet (and re-verifies) every 2 s for up to ~15 s, waiting
+  /// for the backend webhook to credit the top-up.
+  Future<bool> _pollWalletForCredit() async {
+    final before = _balanceBeforePayment;
 
-  Future<void> _bypassTopUp() async {
-    if (!mounted) return;
-    AppSnackbar.show(
-      context,
-      message: '[Dev] Top-up bypassed — ₹${_selectedAmount.toInt()} not actually added.',
-      type: SnackbarType.info,
-    );
-    await Future.delayed(const Duration(milliseconds: 800));
-    if (!mounted) return;
-    Navigator.of(context).pop(false);
+    for (var attempt = 1; attempt <= _webhookPollAttempts; attempt++) {
+      if (!mounted) return false;
+      setState(() => _statusMessage =
+          'Waiting for payment confirmation... ($attempt/$_webhookPollAttempts)');
+      await Future.delayed(_webhookPollInterval);
+      if (!mounted) return false;
+
+      try {
+        if (before != null) {
+          final wallet = await _userRepository.getMyWallet();
+          if (kDebugMode) {
+            debugPrint(
+                '[WalletTopUp] poll #$attempt wallet=₹${wallet.balance} (before=₹$before)');
+          }
+          if (wallet.balance > before) return true;
+        } else {
+          // No pre-payment snapshot — fall back to re-calling verify.
+          final result = await _paymentRepository.verifyPayment(
+            VerifyPaymentRequest(cashfreeOrderId: _lastOrderId ?? ''),
+          );
+          if (kDebugMode) {
+            debugPrint(
+                '[WalletTopUp] poll #$attempt re-verify → "${result.status}"');
+          }
+          if (result.isPaid && !result.isPendingWebhook) return true;
+        }
+      } catch (error) {
+        if (kDebugMode) debugPrint('[WalletTopUp] poll #$attempt failed: $error');
+      }
+    }
+    return false;
   }
 }

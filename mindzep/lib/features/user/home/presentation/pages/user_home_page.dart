@@ -18,6 +18,9 @@ import '../../../../user/data/repositories/user_repository.dart';
 import '../bloc/psychologist_list_bloc.dart';
 import '../bloc/psychologist_list_event_state.dart';
 import '../../../../../core/widgets/app_drawer.dart';
+import '../../../../shared/walkthrough/presentation/walkthrough_coach.dart';
+import '../../../../shared/walkthrough/tours/app_tours.dart';
+import '../../../../shared/walkthrough/walkthrough_keys.dart';
 import '../widgets/mood_sheet.dart';
 
 class UserHomePage extends StatefulWidget {
@@ -38,6 +41,9 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
   List<AppointmentEntity> _appointments = const <AppointmentEntity>[];
   List<BlogEntity> _blogs = const <BlogEntity>[];
   bool _loadingDashboard = true;
+
+  /// Guards the first-run tour against a second launch on refresh.
+  bool _walkthroughRequested = false;
 
   late AnimationController _broadcastCtrl;
   late Animation<double> _ring1, _ring2, _ring3;
@@ -111,6 +117,23 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
       _blogs = mappedBlogs;
       _loadingDashboard = false;
     });
+
+    _maybeStartWalkthrough();
+  }
+
+  /// Runs the guided tour once, the first time a user lands on Home. Fired
+  /// after the dashboard data settles so every highlighted card is laid out.
+  void _maybeStartWalkthrough() {
+    if (_walkthroughRequested) return;
+    _walkthroughRequested = true;
+
+    WalkthroughCoach.startIfFirstTime(
+      context,
+      tourId: TourIds.userHome,
+      steps: AppTours.userHome(),
+      accentColor: AppTours.userAccent,
+      secondaryColor: AppTours.userSecondary,
+    );
   }
 
   @override
@@ -195,6 +218,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                     GestureDetector(
                       onTap: () => _scaffoldKey.currentState?.openDrawer(),
                       child: Container(
+                        key: WalkthroughKeys.userMenu,
                         width: 40, height: 40,
                         decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
                         child: const Icon(Icons.menu_rounded, color: Colors.white, size: 22),
@@ -219,6 +243,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                     GestureDetector(
                       onTap: () => context.push(RouteNames.userNotifications),
                       child: Container(
+                        key: WalkthroughKeys.userNotifications,
                         width: 40, height: 40,
                         decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
                         child: const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
@@ -242,6 +267,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
                 GestureDetector(
                   onTap: () => context.go(RouteNames.userWallet),
                   child: Container(
+                    key: WalkthroughKeys.userWallet,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                     decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -298,6 +324,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
             ),
             const SizedBox(height: 12),
             SizedBox(
+              key: WalkthroughKeys.userMood,
               height: 96,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
@@ -348,6 +375,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
         child: Row(
+          key: WalkthroughKeys.userQuickActions,
           children: [
             Expanded(
               child: _QuickActionCard(
@@ -413,6 +441,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
         child: GestureDetector(
           onTap: () => context.push(RouteNames.userBroadcast),
           child: Container(
+            key: WalkthroughKeys.userBroadcast,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
@@ -566,6 +595,7 @@ class _UserHomePageState extends State<UserHomePage> with SingleTickerProviderSt
             ),
             const SizedBox(height: 12),
             SizedBox(
+              key: WalkthroughKeys.userTherapists,
               height: 140,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,

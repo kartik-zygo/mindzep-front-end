@@ -45,12 +45,18 @@ class _PsychBlogDetailPageState extends State<PsychBlogDetailPage> {
 
   static String _categoryEmoji(String? category) {
     const map = {
-      'Anxiety': '😟', 'Depression': '💙', 'Relationships': '💑',
-      'Stress': '😤', 'Sleep': '😴', 'Trauma': '🧠',
-      'Mindfulness': '🧘', 'Burnout': '🔥',
+      'anxiety': '😟', 'depression': '💙', 'relationships': '💑',
+      'mindfulness': '🧘', 'trauma': '💔', 'addiction': '🔗',
+      'parenting': '👨‍👩‍👧', 'career': '💼',
     };
-    return map[category ?? ''] ?? '📝';
+    return map[(category ?? '').toLowerCase()] ?? '📝';
   }
+
+  static String _categoryLabel(String value) => value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+      .join(' ');
 
   int get _readingTime => ((_blog.body.split(' ').length) / 200).ceil().clamp(1, 99);
 
@@ -134,7 +140,7 @@ class _PsychBlogDetailPageState extends State<PsychBlogDetailPage> {
                           const SizedBox(height: 44),
                           Text(_categoryEmoji(_blog.category), style: const TextStyle(fontSize: 64)),
                           const SizedBox(height: 8),
-                          if (_blog.category != null)
+                          if (_blog.category.trim().isNotEmpty)
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                               decoration: BoxDecoration(
@@ -142,7 +148,7 @@ class _PsychBlogDetailPageState extends State<PsychBlogDetailPage> {
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
-                                _blog.category!,
+                                _categoryLabel(_blog.category),
                                 style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -236,14 +242,14 @@ class _PsychBlogDetailPageState extends State<PsychBlogDetailPage> {
                                 ],
                               ),
                             ),
-                            if (_blog.category != null)
+                            if (_blog.category.trim().isNotEmpty)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFE8F8FB),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: Text(_blog.category!, style: const TextStyle(fontSize: 11, color: Color(0xFF30B0C7), fontWeight: FontWeight.w500)),
+                                child: Text(_categoryLabel(_blog.category), style: const TextStyle(fontSize: 11, color: Color(0xFF30B0C7), fontWeight: FontWeight.w500)),
                               ),
                           ],
                         ),
@@ -450,7 +456,7 @@ class _PsychBlogDetailPageState extends State<PsychBlogDetailPage> {
   Future<void> _showEditBlogDialog() async {
     final titleCtrl = TextEditingController(text: _blog.title);
     final contentCtrl = TextEditingController(text: _blog.body);
-    final categoryCtrl = TextEditingController(text: _blog.category ?? '');
+    final categoryCtrl = TextEditingController(text: _blog.category);
 
     await showDialog<void>(
       context: context,

@@ -10,10 +10,9 @@ import '../../../../../core/config/app_config.dart';
 class CashfreePaymentService {
   final CFPaymentGatewayService _gateway = CFPaymentGatewayService();
 
-  CFEnvironment get _environment =>
-      AppConfig.cashfreeEnvironment == 'production'
-          ? CFEnvironment.PRODUCTION
-          : CFEnvironment.SANDBOX;
+  CFEnvironment get _environment => AppConfig.isPaymentProduction
+      ? CFEnvironment.PRODUCTION
+      : CFEnvironment.SANDBOX;
 
   /// Registers success and error callbacks that receive payment results.
   /// Call this in [State.initState] before calling [launchDropCheckout].

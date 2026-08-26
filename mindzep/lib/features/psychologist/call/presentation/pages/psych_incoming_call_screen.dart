@@ -30,6 +30,12 @@ class _PsychIncomingCallScreenState extends State<PsychIncomingCallScreen>
   late Animation<double> _pulseAnim;
   StreamSubscription<Map<String, dynamic>>? _cancelledSub;
 
+  /// Set to true the moment this psychologist taps Accept so that the
+  /// call:cancelled(accepted_by_other) broadcast — which the server sends to
+  /// ALL psychologists including the accepting one — does not pop the active
+  /// call screen that was just pushed.
+  bool _accepting = false;
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +52,12 @@ class _PsychIncomingCallScreenState extends State<PsychIncomingCallScreen>
     _cancelledSub = sl<PsychCallSocketService>()
         .onCallCancelled
         .listen((payload) {
+      // Ignore: this psychologist already accepted the call — the server
+      // broadcasts call:cancelled(accepted_by_other) to ALL psychologists,
+      // including the accepting one, before the API response arrives.
+      // Without this guard the event would pop the active call screen.
+      if (_accepting) return;
+
       final callId = payload['callId'] as String? ?? '';
       final appointmentId = payload['appointmentId'] as String? ?? '';
       // Match by callId or appointmentId to scope to this specific call.
@@ -146,6 +158,7 @@ class _PsychIncomingCallScreenState extends State<PsychIncomingCallScreen>
   }
 
   void _accept(BuildContext context, {required bool enableVideo}) {
+    _accepting = true;
     context.pushReplacement(RouteNames.psychActiveCall, extra: {
       'callData': widget.callData,
       'enableVideo': enableVideo,

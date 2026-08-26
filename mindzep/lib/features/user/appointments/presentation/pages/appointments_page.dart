@@ -142,6 +142,20 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   }
 
   void _startCallFromAppointment(AppointmentEntity appointment) {
+    final now = DateTime.now();
+    final allowFrom = appointment.scheduledAt.subtract(const Duration(minutes: 5));
+    if (now.isBefore(allowFrom)) {
+      final diff = allowFrom.difference(now);
+      final mins = diff.inMinutes;
+      final secs = diff.inSeconds % 60;
+      final timeLeft = mins > 0 ? '$mins min${mins == 1 ? '' : 's'}' : '$secs sec${secs == 1 ? '' : 's'}';
+      AppSnackbar.show(
+        context,
+        message: 'This session starts in $timeLeft. You can join up to 5 minutes before the scheduled time.',
+        type: SnackbarType.error,
+      );
+      return;
+    }
     context.push(
       RouteNames.preCall,
       extra: appointment,

@@ -1,6 +1,17 @@
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:mindzep/core/constants/api_constants.dart';
 
+/// Central runtime configuration.
+///
+/// Priority order (highest → lowest):
+///   1. --dart-define flags (authoritative — release builds are driven by these)
+///   2. .env file (local development convenience only)
+///   3. The fallback constants in [ApiConstants] / hardcoded defaults
+///
+/// Production release build:
+///   flutter build appbundle \
+///     --dart-define=API_BASE_URL=https://api.mindzep.com \
+///     --dart-define=PAYMENT_ENV=production
 class AppConfig {
   AppConfig._();
 
@@ -12,6 +23,11 @@ class AppConfig {
       String.fromEnvironment('SOCKET_BASE_URL');
   static const String _agoraAppIdDefine =
       String.fromEnvironment('AGORA_APP_ID');
+  static const String _paymentEnvDefine =
+      String.fromEnvironment('PAYMENT_ENV');
+
+  /// Legacy alias for PAYMENT_ENV kept for backwards compatibility with
+  /// existing build scripts / .env files.
   static const String _cashfreeEnvironmentDefine =
       String.fromEnvironment('CASHFREE_ENVIRONMENT');
 
@@ -19,7 +35,11 @@ class AppConfig {
   static late final String socketBaseUrl;
   static late final String restBaseUrl;
   static late final String agoraAppId;
-  static late final String cashfreeEnvironment;
+
+  /// 'sandbox' | 'production' — drives the Cashfree SDK environment.
+  static late final String paymentEnv;
+
+  static bool get isPaymentProduction => paymentEnv == 'production';
 
   static Future<void> initialize({String envFileName = '.env'}) async {
     if (_initialized) return;
@@ -31,23 +51,23 @@ class AppConfig {
     }
 
     final rawApiBase = _resolveValue(
-      dotenvKey: 'API_BASE_URL',
       defineValue: _apiBaseUrlDefine,
+      dotenvKey: 'API_BASE_URL',
       fallback: ApiConstants.apiBaseUrl,
     );
 
     if (rawApiBase.isEmpty || rawApiBase == '__BACKEND_BASE_URL__') {
       throw StateError(
-        'API_BASE_URL is not configured. Set API_BASE_URL in .env, '
-        'pass --dart-define=API_BASE_URL=<url>, or update ApiConstants.apiBaseUrl.',
+        'API_BASE_URL is not configured. Pass --dart-define=API_BASE_URL=<url>, '
+        'set API_BASE_URL in .env, or update ApiConstants.apiBaseUrl.',
       );
     }
 
     apiBaseUrl = _sanitizeUrl(rawApiBase);
     socketBaseUrl = _sanitizeUrl(
       _resolveValue(
-        dotenvKey: 'SOCKET_BASE_URL',
         defineValue: _socketBaseUrlDefine,
+        dotenvKey: 'SOCKET_BASE_URL',
         fallback: ApiConstants.socketBaseUrl.isNotEmpty
             ? ApiConstants.socketBaseUrl
             : apiBaseUrl,
@@ -56,33 +76,47 @@ class AppConfig {
     restBaseUrl = '$apiBaseUrl/api/v1';
 
     agoraAppId = _resolveValue(
-      dotenvKey: 'AGORA_APP_ID',
       defineValue: _agoraAppIdDefine,
+      dotenvKey: 'AGORA_APP_ID',
       fallback: ApiConstants.agoraAppId,
     );
 
-    cashfreeEnvironment = _resolveValue(
-      dotenvKey: 'CASHFREE_ENVIRONMENT',
-      defineValue: _cashfreeEnvironmentDefine,
-      fallback: 'sandbox',
-    ).toLowerCase();
+    final rawPaymentEnv = () {
+      // PAYMENT_ENV takes precedence over the legacy CASHFREE_ENVIRONMENT key.
+      if (_paymentEnvDefine.trim().isNotEmpty) return _paymentEnvDefine;
+      if (_cashfreeEnvironmentDefine.trim().isNotEmpty) {
+        return _cashfreeEnvironmentDefine;
+      }
+      final envValue = dotenv.env['PAYMENT_ENV']?.trim() ?? '';
+      if (envValue.isNotEmpty) return envValue;
+      final legacyEnvValue = dotenv.env['CASHFREE_ENVIRONMENT']?.trim() ?? '';
+      if (legacyEnvValue.isNotEmpty) return legacyEnvValue;
+      return 'sandbox';
+    }();
+
+    paymentEnv =
+        rawPaymentEnv.trim().toLowerCase() == 'production'
+            ? 'production'
+            : 'sandbox';
 
     _initialized = true;
   }
 
   static String _resolveValue({
-    required String dotenvKey,
     required String defineValue,
+    required String dotenvKey,
     String fallback = '',
   }) {
-    final envValue = dotenv.env[dotenvKey]?.trim() ?? '';
-    if (envValue.isNotEmpty) {
-      return envValue;
-    }
-
+    // --dart-define wins: release builds must not be overridden by a bundled
+    // .env asset that was meant for local development.
     final compileTimeValue = defineValue.trim();
     if (compileTimeValue.isNotEmpty) {
       return compileTimeValue;
+    }
+
+    final envValue = dotenv.env[dotenvKey]?.trim() ?? '';
+    if (envValue.isNotEmpty) {
+      return envValue;
     }
 
     return fallback;

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
 import '../../../../../core/router/route_names.dart';
 import '../../../../../injection/injection_container.dart';
 import '../../data/models/notification_models.dart';
@@ -19,7 +18,6 @@ class NotificationsPage extends StatefulWidget {
 class _NotificationsPageState extends State<NotificationsPage> {
   late final NotificationRepository _notificationRepository;
   late final NotificationsSocketManager _notificationsSocketManager;
-
   final List<NotificationModel> _notifications = <NotificationModel>[];
   bool _loading = true;
 
@@ -134,9 +132,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.of(context).canPop()
-                            ? Navigator.of(context).pop()
-                            : context.go(RouteNames.userHome),
+                        onTap: () {
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).pop();
+                          } else {
+                            final location =
+                                GoRouterState.of(context).matchedLocation;
+                            if (location.startsWith('/admin/')) {
+                              context.go(RouteNames.adminDashboard);
+                            } else if (location.startsWith('/psych/')) {
+                              context.go(RouteNames.psychDashboard);
+                            } else {
+                              context.go(RouteNames.userHome);
+                            }
+                          }
+                        },
                         child: Container(
                           width: 38,
                           height: 38,

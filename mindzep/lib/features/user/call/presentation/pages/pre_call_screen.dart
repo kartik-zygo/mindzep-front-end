@@ -10,6 +10,7 @@ import '../../../../../core/widgets/app_snackbar.dart';
 import '../../../../../core/widgets/app_avatar.dart';
 import '../../../../../injection/injection_container.dart';
 import '../../../../user/data/repositories/user_repository.dart';
+import '../../data/models/call_models.dart';
 import '../bloc/call_bloc.dart';
 import '../models/call_route_payload.dart';
 
@@ -57,6 +58,7 @@ class _PreCallScreenState extends State<PreCallScreen> {
     return BlocConsumer<CallBloc, CallState>(
       listenWhen: (previous, current) {
         if (current is CallErrorState) return true;
+        if (current is CallInsufficientBalance) return true;
         return previous is! CallActive && current is CallActive;
       },
       listener: (context, state) {
@@ -71,6 +73,8 @@ class _PreCallScreenState extends State<PreCallScreen> {
               },
             );
           });
+        } else if (state is CallInsufficientBalance) {
+          _showInsufficientBalanceDialog(context, state.error);
         } else if (state is CallErrorState) {
           AppSnackbar.show(
             context,
@@ -81,6 +85,9 @@ class _PreCallScreenState extends State<PreCallScreen> {
       },
       builder: (context, state) {
         final isConnecting = state is CallConnecting;
+        // Prepaid appointments come through with ratePerMinute == 0 — the
+        // session is paid in full at booking, so no per-minute / wallet UI.
+        final isPrepaid = widget.payload.ratePerMinute <= 0;
         // Only gate on empty wallet when there is no booked appointment.
         // With a valid appointment the call can proceed (free minutes apply;
         // billing tracks but the auto-end guard requires wallet > 0).
@@ -129,9 +136,12 @@ class _PreCallScreenState extends State<PreCallScreen> {
                     child: Column(
                       children: [
                         _InfoRow(
-                          icon: Icons.currency_rupee_rounded,
-                          label:
-                              '₹${widget.payload.ratePerMinute.toStringAsFixed(0)}/min · First ${widget.payload.freeMinutes} min free',
+                          icon: isPrepaid
+                              ? Icons.verified_rounded
+                              : Icons.currency_rupee_rounded,
+                          label: isPrepaid
+                              ? 'Prepaid · session included'
+                              : '₹${widget.payload.ratePerMinute.toStringAsFixed(0)}/min · First ${widget.payload.freeMinutes} min free',
                         ),
                         const SizedBox(height: 8),
                         _InfoRow(
@@ -140,13 +150,16 @@ class _PreCallScreenState extends State<PreCallScreen> {
                               ? '${widget.payload.rating.toStringAsFixed(1)} rating · ${widget.payload.yearsExperience} yrs exp'
                               : 'Session starts from your booked appointment',
                         ),
-                        const SizedBox(height: 8),
-                        _InfoRow(
-                          icon: Icons.account_balance_wallet_rounded,
-                          label: _walletLoaded
-                              ? 'Wallet: ₹${_walletBalance.toStringAsFixed(0)}'
-                              : 'Loading wallet...',
-                        ),
+                        // Wallet balance is irrelevant for a prepaid session.
+                        if (!isPrepaid) ...[
+                          const SizedBox(height: 8),
+                          _InfoRow(
+                            icon: Icons.account_balance_wallet_rounded,
+                            label: _walletLoaded
+                                ? 'Wallet: ₹${_walletBalance.toStringAsFixed(0)}'
+                                : 'Loading wallet...',
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -281,6 +294,75 @@ class _PreCallScreenState extends State<PreCallScreen> {
             walletBalance: _walletBalance,
           ),
         );
+  }
+
+  /// HTTP 402 INSUFFICIENT_WALLET_BALANCE from the call-start endpoint —
+  /// shows the current balance, the minimum needed for one billed minute,
+  /// and a shortcut to the wallet top-up screen.
+  void _showInsufficientBalanceDialog(
+    BuildContext context,
+    InsufficientBalanceError error,
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Row(children: [
+          Icon(Icons.account_balance_wallet_rounded,
+              color: Color(0xFFFF9500), size: 22),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text('Insufficient Balance',
+                style: TextStyle(color: Colors.white, fontSize: 18)),
+          ),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(error.message,
+                style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            _balanceRow('Current balance',
+                '₹${error.walletBalance.toStringAsFixed(0)}'),
+            const SizedBox(height: 6),
+            _balanceRow('Minimum required',
+                '₹${error.minimumRequired.toStringAsFixed(0)}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.pop();
+              context.push(RouteNames.userWallet);
+            },
+            child: const Text('Add Money'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _balanceRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: const TextStyle(color: Colors.white54, fontSize: 13)),
+        Text(value,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600)),
+      ],
+    );
   }
 
   String _initials(String name) {

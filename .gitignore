@@ -7,6 +7,38 @@
 .buildlog/
 .history
 
+# Dependency lockfiles MUST be versioned so a clone on another machine (the Mac
+# that builds the iOS release) resolves the exact same plugin and pod versions.
+# They are re-included here because the blanket *.lock rule above would eat them.
+!pubspec.lock
+!**/pubspec.lock
+!**/Podfile.lock
+
+# Local tooling / editor state
+.venv/
+.claude/settings.local.json
+.vscode/
+.idea/
+
+# Internal documentation — specs, guides, plans and generated analysis dumps
+# stay on local machines and out of the remote.
+# (git's ignore matching is case-sensitive, hence both spellings.)
+*_GUIDE.md
+*_Guide.md
+*_SPECIFICATION.md
+*_Specification.md
+*_PLAN.md
+*_Plan.md
+*_plan.txt
+*.local.md
+/docs/
+analysis*.txt
+analysis*.md
+analysis*.tsv
+analyze_output.txt
+output.txt
+test_results.txt
+
 
 
 # Flutter repo-specific

@@ -1,15 +1,14 @@
 import 'dart:async';
-
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 import '../../../../../core/config/app_config.dart';
 import '../../../../user/call/data/agora/agora_call_engine.dart';
 import '../../../../user/call/data/models/call_models.dart';
 import '../../../../user/call/data/repositories/call_repository.dart';
 import '../../data/models/incoming_call_data.dart';
+import '../../data/socket/psych_call_socket_service.dart';
 
 // ─── Events ──────────────────────────────────────────────────────────────────
 
@@ -71,6 +70,30 @@ class PsychRemoteLeft extends PsychCallEvent {
   List<Object?> get props => [uid];
 }
 
+/// A heartbeat response arrived (server may have force-ended the call).
+class _PsychHeartbeatArrived extends PsychCallEvent {
+  final CallHeartbeatResponse response;
+  const _PsychHeartbeatArrived(this.response);
+  @override
+  List<Object?> get props => [response];
+}
+
+/// `call:force-end` socket event — the server already terminated the call.
+class _PsychForceEndReceived extends PsychCallEvent {
+  final CallForceEndEvent payload;
+  const _PsychForceEndReceived(this.payload);
+  @override
+  List<Object?> get props => [payload];
+}
+
+/// `call:low-balance` socket event — user is about to run out of talk time.
+class _PsychLowBalanceReceived extends PsychCallEvent {
+  final CallLowBalanceEvent payload;
+  const _PsychLowBalanceReceived(this.payload);
+  @override
+  List<Object?> get props => [payload];
+}
+
 // ─── States ──────────────────────────────────────────────────────────────────
 
 abstract class PsychCallState extends Equatable {
@@ -100,6 +123,10 @@ class PsychCallActive extends PsychCallState {
   final int? remoteUid;
   final String channelName;
 
+  /// True when the server warned that the user's balance is running low —
+  /// the call may end shortly.
+  final bool userLowBalance;
+
   const PsychCallActive({
     required this.userName,
     this.userAvatar,
@@ -109,6 +136,7 @@ class PsychCallActive extends PsychCallState {
     this.isSpeakerOn = true,
     this.remoteUid,
     this.channelName = '',
+    this.userLowBalance = false,
   });
 
   PsychCallActive copyWith({
@@ -119,6 +147,7 @@ class PsychCallActive extends PsychCallState {
     int? remoteUid,
     bool clearRemoteUid = false,
     String? channelName,
+    bool? userLowBalance,
   }) =>
       PsychCallActive(
         userName: userName,
@@ -129,6 +158,7 @@ class PsychCallActive extends PsychCallState {
         isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
         remoteUid: clearRemoteUid ? null : (remoteUid ?? this.remoteUid),
         channelName: channelName ?? this.channelName,
+        userLowBalance: userLowBalance ?? this.userLowBalance,
       );
 
   @override
@@ -139,6 +169,7 @@ class PsychCallActive extends PsychCallState {
         isSpeakerOn,
         remoteUid,
         channelName,
+        userLowBalance,
       ];
 }
 
@@ -146,10 +177,21 @@ class PsychCallEnded extends PsychCallState {
   final int totalSeconds;
   final String userName;
 
-  const PsychCallEnded({required this.totalSeconds, required this.userName});
+  /// user_ended | wallet_exhausted | heartbeat_timeout
+  final String endReason;
+
+  /// Display copy for the end screen (e.g. wallet exhaustion explanation).
+  final String? message;
+
+  const PsychCallEnded({
+    required this.totalSeconds,
+    required this.userName,
+    this.endReason = 'user_ended',
+    this.message,
+  });
 
   @override
-  List<Object?> get props => [totalSeconds, userName];
+  List<Object?> get props => [totalSeconds, userName, endReason, message];
 }
 
 class PsychCallError extends PsychCallState {
@@ -162,26 +204,42 @@ class PsychCallError extends PsychCallState {
 // ─── BLoC ────────────────────────────────────────────────────────────────────
 
 class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
+  static const Duration _heartbeatInterval = Duration(seconds: 20);
+
   final CallRepository _callRepository;
   final AgoraCallEngine _agoraCallEngine;
+  final PsychCallSocketService _socketService;
 
   Timer? _timer;
+  Timer? _heartbeatTimer;
+  StreamSubscription<CallForceEndEvent>? _forceEndSub;
+  StreamSubscription<CallLowBalanceEvent>? _lowBalanceSub;
+
   int _elapsedSeconds = 0;
   String? _appointmentId;
   String _userName = 'User';
   String? _userAvatar;
   String _channelName = '';
 
+  /// Set the moment any end path wins (psych end / force-end socket /
+  /// heartbeat callEnded). All other end paths become no-ops.
+  bool _isFinalizing = false;
+
   PsychCallBloc({
     required CallRepository callRepository,
     required AgoraCallEngine agoraCallEngine,
+    required PsychCallSocketService socketService,
   })  : _callRepository = callRepository,
         _agoraCallEngine = agoraCallEngine,
+        _socketService = socketService,
         super(const PsychCallIdle()) {
     on<PsychStartCall>(_onStartCall);
     on<_PsychCallConnected>(_onConnected);
     on<PsychTimerTick>(_onTick);
     on<PsychEndCall>(_onEndCall);
+    on<_PsychHeartbeatArrived>(_onHeartbeatArrived);
+    on<_PsychForceEndReceived>(_onForceEndReceived);
+    on<_PsychLowBalanceReceived>(_onLowBalanceReceived);
     on<PsychToggleMute>(_onToggleMute);
     on<PsychToggleVideo>(_onToggleVideo);
     on<PsychToggleSpeaker>(_onToggleSpeaker);
@@ -199,6 +257,7 @@ class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
     _appointmentId = callData.appointmentId;
     _userName = callData.userName.isNotEmpty ? callData.userName : 'User';
     _userAvatar = callData.userAvatar;
+    _isFinalizing = false;
 
     emit(PsychCallConnecting(_userName));
 
@@ -275,6 +334,26 @@ class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
     Emitter<PsychCallState> emit,
   ) {
     _elapsedSeconds = 0;
+
+    // Join the per-appointment call room and start watching for server-side
+    // billing events (force-end / low-balance).
+    final appointmentId = _appointmentId ?? '';
+    if (appointmentId.isNotEmpty) {
+      _socketService.joinCallRoom(appointmentId);
+    }
+    _forceEndSub?.cancel();
+    _forceEndSub = _socketService.onForceEnd.listen((payload) {
+      if (isClosed) return;
+      if (!_isForThisCall(payload.appointmentId)) return;
+      add(_PsychForceEndReceived(payload));
+    });
+    _lowBalanceSub?.cancel();
+    _lowBalanceSub = _socketService.onLowBalance.listen((payload) {
+      if (isClosed) return;
+      if (!_isForThisCall(payload.appointmentId)) return;
+      add(_PsychLowBalanceReceived(payload));
+    });
+
     emit(PsychCallActive(
       userName: _userName,
       userAvatar: _userAvatar,
@@ -282,6 +361,13 @@ class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
       channelName: _channelName,
     ));
     _startTimer();
+    _startHeartbeat();
+  }
+
+  bool _isForThisCall(String eventAppointmentId) {
+    final current = _appointmentId ?? '';
+    if (current.isEmpty || eventAppointmentId.isEmpty) return true;
+    return current == eventAppointmentId;
   }
 
   void _startTimer() {
@@ -290,6 +376,101 @@ class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
       _elapsedSeconds++;
       if (!isClosed) add(PsychTimerTick(_elapsedSeconds));
     });
+  }
+
+  // ── Heartbeat loop — keeps the call alive AND learns about force-ends ─────
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _sendHeartbeat(); // first beat immediately on join
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      _sendHeartbeat();
+    });
+  }
+
+  Future<void> _sendHeartbeat() async {
+    final appointmentId = _appointmentId;
+    if (appointmentId == null || _isFinalizing) return;
+
+    try {
+      final response = await _callRepository.sendHeartbeat(
+        appointmentId,
+        CallHeartbeatRequest(durationSeconds: _elapsedSeconds),
+      );
+      if (kDebugMode) {
+        debugPrint(
+            '[PsychCall] heartbeat → ended=${response.callEnded} ${response.billing ?? '(no billing yet)'}');
+      }
+      if (!isClosed) add(_PsychHeartbeatArrived(response));
+    } catch (error) {
+      if (kDebugMode) debugPrint('[PsychCall] heartbeat failed: $error');
+    }
+  }
+
+  Future<void> _onHeartbeatArrived(
+    _PsychHeartbeatArrived event,
+    Emitter<PsychCallState> emit,
+  ) async {
+    final response = event.response;
+
+    if (response.callEnded) {
+      await _finalizeServerEndedCall(
+        emit,
+        reason: response.endReason ?? 'wallet_exhausted',
+      );
+      return;
+    }
+
+    final current = state;
+    if (current is! PsychCallActive) return;
+
+    final billing = response.billing;
+    if (billing != null && current.userLowBalance != billing.lowBalance) {
+      emit(current.copyWith(userLowBalance: billing.lowBalance));
+    }
+  }
+
+  Future<void> _onForceEndReceived(
+    _PsychForceEndReceived event,
+    Emitter<PsychCallState> emit,
+  ) async {
+    await _finalizeServerEndedCall(emit, reason: event.payload.reason);
+  }
+
+  void _onLowBalanceReceived(
+    _PsychLowBalanceReceived event,
+    Emitter<PsychCallState> emit,
+  ) {
+    final current = state;
+    if (current is! PsychCallActive) return;
+    if (current.userLowBalance) return; // already shown — don't re-emit
+    emit(current.copyWith(userLowBalance: true));
+  }
+
+  /// Shared teardown for server-side call termination — heartbeat `callEnded`
+  /// or `call:force-end`, whichever arrives first wins; the second is a no-op.
+  Future<void> _finalizeServerEndedCall(
+    Emitter<PsychCallState> emit, {
+    required String reason,
+  }) async {
+    if (_isFinalizing) return;
+    _isFinalizing = true;
+
+    _timer?.cancel();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+
+    await _agoraCallEngine.leaveChannel();
+
+    // No POST /calls/end here — the server already settled and ended the call.
+    emit(PsychCallEnded(
+      totalSeconds: _elapsedSeconds,
+      userName: _userName,
+      endReason: reason,
+      message: reason == 'wallet_exhausted'
+          ? "Call ended — user's wallet balance is exhausted."
+          : null,
+    ));
   }
 
   void _onTick(PsychTimerTick event, Emitter<PsychCallState> emit) {
@@ -303,29 +484,36 @@ class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
     PsychEndCall event,
     Emitter<PsychCallState> emit,
   ) async {
-    _timer?.cancel();
+    if (_isFinalizing) return;
+
     final current = state;
+    if (current is! PsychCallActive) return;
 
-    if (current is PsychCallActive) {
-      final appointmentId = _appointmentId;
-      if (appointmentId != null) {
-        try {
-          await _callRepository.endCall(
-            appointmentId,
-            CallEndRequest(durationSeconds: current.elapsedSeconds),
-          );
-        } catch (_) {
-          // End-call failure is tolerated; UI still exits the call.
-        }
+    _isFinalizing = true;
+    _timer?.cancel();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+
+    CallEndResult? endResult;
+    final appointmentId = _appointmentId;
+    if (appointmentId != null) {
+      try {
+        endResult = await _callRepository.endCall(
+          appointmentId,
+          CallEndRequest(durationSeconds: current.elapsedSeconds),
+        );
+      } catch (_) {
+        // End-call failure is tolerated; UI still exits the call.
       }
-
-      await _agoraCallEngine.leaveChannel();
-
-      emit(PsychCallEnded(
-        totalSeconds: current.elapsedSeconds,
-        userName: current.userName,
-      ));
     }
+
+    await _agoraCallEngine.leaveChannel();
+
+    emit(PsychCallEnded(
+      totalSeconds: endResult?.totalSeconds ?? current.elapsedSeconds,
+      userName: current.userName,
+      endReason: endResult?.endReason ?? 'user_ended',
+    ));
   }
 
   void _onToggleMute(PsychToggleMute event, Emitter<PsychCallState> emit) {
@@ -380,6 +568,10 @@ class PsychCallBloc extends Bloc<PsychCallEvent, PsychCallState> {
   @override
   Future<void> close() async {
     _timer?.cancel();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    await _forceEndSub?.cancel();
+    await _lowBalanceSub?.cancel();
     await _agoraCallEngine.dispose();
     return super.close();
   }

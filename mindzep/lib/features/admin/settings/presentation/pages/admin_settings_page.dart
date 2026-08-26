@@ -39,23 +39,23 @@ class AdminSettingsPage extends StatelessWidget {
                   ),
                 ),
                 const Divider(height: 1, indent: 48),
-                _SettingsTile(
-                  icon: Icons.verified_user_outlined,
-                  label: 'Auto-approve Psychologists',
-                  trailing: Switch(
-                    value: false,
-                    onChanged: (_) {},
-                    activeColor: AppColors.primary,
-                  ),
-                ),
-                const Divider(height: 1, indent: 48),
-                _SettingsTile(
-                  icon: Icons.currency_rupee_rounded,
-                  label: 'Platform Commission',
-                  subtitle: '20%',
-                  onTap: () => _showEditDialog(
-                      context, 'Commission (%)', '20'),
-                ),
+                // _SettingsTile(
+                //   icon: Icons.verified_user_outlined,
+                //   label: 'Auto-approve Psychologists',
+                //   trailing: Switch(
+                //     value: false,
+                //     onChanged: (_) {},
+                //     activeColor: AppColors.primary,
+                //   ),
+                // ),
+                // const Divider(height: 1, indent: 48),
+                // _SettingsTile(
+                //   icon: Icons.currency_rupee_rounded,
+                //   label: 'Platform Commission',
+                //   subtitle: '20%',
+                //   onTap: () => _showEditDialog(
+                //       context, 'Commission (%)', '20'),
+                // ),
               ],
             ),
           ),

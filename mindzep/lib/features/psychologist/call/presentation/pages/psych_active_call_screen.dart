@@ -73,7 +73,11 @@ class _PsychActiveCallScreenState extends State<PsychActiveCallScreen> {
           if (state is PsychCallEnded) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!context.mounted) return;
-              context.go(RouteNames.psychSessions);
+              if (state.endReason == 'wallet_exhausted') {
+                _showWalletExhaustedDialog(context, state);
+              } else {
+                context.go(RouteNames.psychSessions);
+              }
             });
           }
         },
@@ -188,6 +192,37 @@ class _PsychActiveCallScreenState extends State<PsychActiveCallScreen> {
                 fontFamily: 'monospace',
               ),
             ),
+            if (state.userLowBalance) ...[
+              const SizedBox(height: AppDimensions.paddingS),
+              Container(
+                margin: const EdgeInsets.symmetric(
+                    horizontal: AppDimensions.paddingL),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.15),
+                  borderRadius:
+                      BorderRadius.circular(AppDimensions.radiusM),
+                  border: Border.all(
+                      color: AppColors.warning.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.warning_amber_rounded,
+                        color: AppColors.warning, size: 16),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        "User's balance is low — the call may end soon.",
+                        style: AppTextStyles.caption1
+                            .copyWith(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: AppDimensions.paddingM),
             Expanded(
               child: Padding(
@@ -273,7 +308,8 @@ class _PsychActiveCallScreenState extends State<PsychActiveCallScreen> {
   }
 
   Widget _buildRemoteView(PsychCallActive state, RtcEngine? engine) {
-    if (engine == null || state.isVideoOff || state.remoteUid == null) {
+    // Note: state.isVideoOff is the *local* camera flag — do not use it here.
+    if (engine == null || state.remoteUid == null) {
       return Container(
         color: Colors.white.withOpacity(0.05),
         child: Center(
@@ -320,6 +356,34 @@ class _PsychActiveCallScreenState extends State<PsychActiveCallScreen> {
       controller: VideoViewController(
         rtcEngine: engine,
         canvas: const VideoCanvas(uid: 0),
+      ),
+    );
+  }
+
+  /// The server force-ended the call because the user's wallet ran out —
+  /// explain that to the psychologist before returning to sessions.
+  void _showWalletExhaustedDialog(BuildContext context, PsychCallEnded state) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text('Call Ended',
+            style: TextStyle(color: Colors.white, fontSize: 18)),
+        content: Text(
+          state.message ?? "Call ended — user's wallet balance is exhausted.",
+          style: const TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+        actions: [
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              if (context.mounted) context.go(RouteNames.psychSessions);
+            },
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }

@@ -4,7 +4,9 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/utils/json_readers.dart';
+import '../../../../user/call/data/models/call_models.dart';
 import '../../../../user/call/data/repositories/call_repository.dart';
 import '../../../../user/call/data/socket/call_socket_manager.dart';
 
@@ -125,6 +127,16 @@ class BroadcastError extends BroadcastState {
   List<Object?> get props => [message];
 }
 
+/// `POST /calls/broadcast-instant` rejected with HTTP 402 — the wallet cannot
+/// cover one billed minute.
+class BroadcastInsufficientBalance extends BroadcastState {
+  final InsufficientBalanceError error;
+  const BroadcastInsufficientBalance(this.error);
+  @override
+  List<Object?> get props =>
+      [error.walletBalance, error.minimumRequired, error.message];
+}
+
 // ─── BLoC ────────────────────────────────────────────────────────────────────
 
 class BroadcastCallBloc extends Bloc<BroadcastEvent, BroadcastState> {
@@ -159,6 +171,14 @@ class BroadcastCallBloc extends Bloc<BroadcastEvent, BroadcastState> {
     _elapsedSeconds = 0;
 
     try {
+      // Connect to the /call socket namespace and start listening BEFORE
+      // initiating the broadcast API call. The server notifies psychologists
+      // immediately when the broadcast is created, so a psych can accept and
+      // the server can fire call:accepted back to us before the HTTP response
+      // even arrives if we connect after the API call.
+      await _callSocketManager.connect();
+      _socketSub = _callSocketManager.eventStream.listen(_handleSocketEvent);
+
       final result = await _callRepository.initiateInstantBroadcast();
       _appointmentId = result.appointmentId;
 
@@ -166,15 +186,24 @@ class BroadcastCallBloc extends Bloc<BroadcastEvent, BroadcastState> {
         notifiedPsychologists: result.notifiedPsychologists,
       ));
 
-      // Connect to the /call socket namespace and listen for the psychologist
-      // accepting (`call:accepted`).
-      await _callSocketManager.connect();
-      _socketSub = _callSocketManager.eventStream.listen(_handleSocketEvent);
-
       // Start the 60-second timeout timer.
       _startTimer();
+    } on ApiErrorModel catch (error) {
+      debugPrint('[BroadcastCallBloc] start error: $error');
+      _cleanup();
+      final insufficient = InsufficientBalanceError.tryParse(
+        statusCode: error.statusCode,
+        message: error.message,
+        details: error.details,
+      );
+      if (insufficient != null) {
+        emit(BroadcastInsufficientBalance(insufficient));
+      } else {
+        emit(BroadcastError(error.message));
+      }
     } catch (error) {
       debugPrint('[BroadcastCallBloc] start error: $error');
+      _cleanup();
       emit(BroadcastError(error.toString()));
     }
   }

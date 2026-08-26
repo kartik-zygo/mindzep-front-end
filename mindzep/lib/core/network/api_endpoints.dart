@@ -19,6 +19,7 @@ class ApiEndpoints {
   // Users
   static const String users = '/users';
   static const String me = '/users/me';
+  static const String meAccount = '/users/me/account';
   static const String meProfile = '/users/me/profile';
   static const String meWallet = '/users/me/wallet';
   static const String meMoods = '/users/me/moods';
@@ -76,6 +77,10 @@ class ApiEndpoints {
   static const String paymentsCreateOrder = '/payments/create-order';
   static const String paymentsVerify = '/payments/verify';
   static const String paymentsRefund = '/payments/refund';
+  // Pays for an appointment (or top-up) directly from the user's wallet
+  // balance, skipping the Cashfree gateway. Backend must deduct the amount,
+  // mark the appointment paid, and return a paid/failed status.
+  static const String paymentsWalletPay = '/payments/wallet-pay';
 
   // Blogs
   static const String blogs = '/blogs';

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../../injection/injection_container.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_avatar.dart';
@@ -279,6 +280,23 @@ class _UserProfilePageState extends State<UserProfilePage> {
                     ]),
                   ),
                 ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => _confirmDeleteAccount(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8E8E93).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFF8E8E93).withOpacity(0.2)),
+                    ),
+                    child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(Icons.delete_forever_rounded, color: Color(0xFF8E8E93), size: 20),
+                      SizedBox(width: 8),
+                      Text('Delete Account', style: TextStyle(color: Color(0xFF8E8E93), fontSize: 16, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ),
                 const SizedBox(height: 100),
               ]),
             ),
@@ -346,8 +364,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
         child: Container(
           decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -367,8 +385,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
               label: 'Update Password',
               gradient: const [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
               onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                final messenger = ScaffoldMessenger.of(sheetContext);
+                Navigator.pop(sheetContext);
+                messenger.showSnackBar(const SnackBar(
                   content: Text('Password updated!'), backgroundColor: Color(0xFF34C759),
                   behavior: SnackBarBehavior.floating,
                 ));
@@ -447,6 +466,48 @@ class _UserProfilePageState extends State<UserProfilePage> {
               Future.microtask(() => context.read<AuthBloc>().add(const LogoutRequested()));
             },
             child: const Text('Sign Out', style: TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static void _confirmDeleteAccount(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Delete Account?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+          'Your account will be deactivated. This action cannot be undone. '
+          'All your data will be scheduled for removal.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF8E8E93))),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              try {
+                await sl<UserRepository>().deleteAccount();
+                if (context.mounted) {
+                  Future.microtask(
+                    () => context.read<AuthBloc>().add(const LogoutRequested()),
+                  );
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Failed to delete account. Please try again.'),
+                    backgroundColor: Color(0xFFFF3B30),
+                    behavior: SnackBarBehavior.floating,
+                  ));
+                }
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -760,10 +821,13 @@ class _HelpSheet extends StatelessWidget {
               const SizedBox(height: 4),
               const Text('Our team is available Mon–Sat, 9AM–9PM IST.', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                decoration: BoxDecoration(color: const Color(0xFF5E5CE6), borderRadius: BorderRadius.circular(10)),
-                child: const Text('📧 support@mindzep.com', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+              GestureDetector(
+                onTap: () => launchUrl(Uri(scheme: 'mailto', path: 'support@mindzep.com')),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(color: const Color(0xFF5E5CE6), borderRadius: BorderRadius.circular(10)),
+                  child: const Text('📧 support@mindzep.com', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
               ),
             ]),
           ),

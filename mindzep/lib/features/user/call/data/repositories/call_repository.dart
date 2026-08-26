@@ -37,25 +37,33 @@ class CallRepository {
     );
   }
 
-  Future<void> sendHeartbeat(
+  /// Sends a liveness heartbeat. The backend deducts the wallet for elapsed
+  /// talk-time and returns a live billing snapshot — and may report that the
+  /// call was force-ended (wallet_exhausted).
+  ///
+  /// Parsed from the full envelope (extractData: false) because the
+  /// user-facing exhaustion message lives at the top level, next to `data`.
+  Future<CallHeartbeatResponse> sendHeartbeat(
     String appointmentId,
     CallHeartbeatRequest request,
   ) {
-    return _dioClient.post<void>(
+    return _dioClient.post<CallHeartbeatResponse>(
       ApiEndpoints.callHeartbeat(appointmentId),
       data: request.toJson(),
-      parser: (_) => null,
+      extractData: false,
+      parser: (json) =>
+          CallHeartbeatResponse.fromEnvelope(JsonReaders.asMap(json)),
     );
   }
 
-  Future<void> endCall(
+  Future<CallEndResult> endCall(
     String appointmentId,
     CallEndRequest request,
   ) {
-    return _dioClient.post<void>(
+    return _dioClient.post<CallEndResult>(
       ApiEndpoints.callEnd(appointmentId),
       data: request.toJson(),
-      parser: (_) => null,
+      parser: (json) => CallEndResult.fromJson(JsonReaders.asMap(json)),
     );
   }
 

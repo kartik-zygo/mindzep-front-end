@@ -1,11 +1,11 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/domain/entities/user_entity.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
+import '../../features/auth/presentation/pages/complete_profile_page.dart';
 import '../../features/auth/presentation/pages/forgot_password_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/onboarding_page.dart';
@@ -32,6 +32,11 @@ import '../../features/user/broadcast/presentation/pages/broadcast_call_page.dar
 import '../../features/user/blog/presentation/pages/blog_list_page.dart';
 import '../../features/user/blog/presentation/pages/blog_detail_page.dart';
 import '../../features/user/notifications/presentation/pages/notifications_page.dart';
+import '../../features/user/settings/presentation/pages/user_settings_page.dart';
+import '../../features/shared/faq/data/faq_data.dart';
+import '../../features/shared/faq/presentation/pages/faq_page.dart';
+import '../../features/shared/help_support/presentation/pages/help_support_page.dart';
+import '../../features/shared/walkthrough/walkthrough_keys.dart';
 import '../../features/psychologist/blog/presentation/pages/psych_blog_page.dart';
 import '../../features/psychologist/blog/presentation/pages/psych_blog_detail_page.dart';
 import '../../features/psychologist/call/data/models/incoming_call_data.dart';
@@ -89,18 +94,12 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
   },
   routes: [
     // ─── Auth ─────────────────────────────────────────────────────────────
-    GoRoute(
-      path: RouteNames.splash,
-      builder: (_, __) => const SplashPage(),
-    ),
+    GoRoute(path: RouteNames.splash, builder: (_, __) => const SplashPage()),
     GoRoute(
       path: RouteNames.onboarding,
       builder: (_, __) => const OnboardingPage(),
     ),
-    GoRoute(
-      path: RouteNames.login,
-      builder: (_, __) => const LoginPage(),
-    ),
+    GoRoute(path: RouteNames.login, builder: (_, __) => const LoginPage()),
     GoRoute(
       path: RouteNames.register,
       builder: (_, __) => const RegisterPage(),
@@ -119,6 +118,10 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
       path: RouteNames.forgotPassword,
       builder: (_, __) => const ForgotPasswordPage(),
     ),
+    GoRoute(
+      path: RouteNames.completeProfile,
+      builder: (_, __) => const CompleteProfilePage(),
+    ),
 
     // ─── User Shell ────────────────────────────────────────────────────────
     StatefulShellRoute.indexedStack(
@@ -126,46 +129,56 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
           UserShell(navigationShell: navigationShell),
       branches: [
         // 0 — Home
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.userHome,
-            builder: (_, __) => BlocProvider(
-              create: (_) => sl<PsychologistListBloc>(),
-              child: const UserHomePage(),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.userHome,
+              builder: (_, __) => BlocProvider(
+                create: (_) => sl<PsychologistListBloc>(),
+                child: const UserHomePage(),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
         // 1 — Consult
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.userConsult,
-            builder: (_, __) => BlocProvider(
-              create: (_) => sl<PsychologistListBloc>(),
-              child: const ConsultPage(),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.userConsult,
+              builder: (_, __) => BlocProvider(
+                create: (_) => sl<PsychologistListBloc>(),
+                child: const ConsultPage(),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
         // 2 — Sessions
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.userAppointments,
-            builder: (_, __) => const AppointmentsPage(),
-          ),
-        ]),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.userAppointments,
+              builder: (_, __) => const AppointmentsPage(),
+            ),
+          ],
+        ),
         // 3 — Wallet
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.userWallet,
-            builder: (_, __) => const UserWalletPage(),
-          ),
-        ]),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.userWallet,
+              builder: (_, __) => const UserWalletPage(),
+            ),
+          ],
+        ),
         // 4 — Profile
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.userProfile,
-            builder: (_, __) => const UserProfilePage(),
-          ),
-        ]),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.userProfile,
+              builder: (_, __) => const UserProfilePage(),
+            ),
+          ],
+        ),
       ],
     ),
 
@@ -174,36 +187,46 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
       builder: (context, state, navigationShell) =>
           PsychShell(navigationShell: navigationShell),
       branches: [
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.psychDashboard,
-            builder: (_, __) => const PsychDashboardPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.psychSlots,
-            builder: (_, __) => const PsychSlotsPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.psychSessions,
-            builder: (_, __) => const PsychSessionsPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.psychBlogs,
-            builder: (_, __) => const PsychBlogPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.psychProfile,
-            builder: (_, __) => const PsychProfilePage(),
-          ),
-        ]),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.psychDashboard,
+              builder: (_, __) => const PsychDashboardPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.psychSlots,
+              builder: (_, __) => const PsychSlotsPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.psychSessions,
+              builder: (_, __) => const PsychSessionsPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.psychBlogs,
+              builder: (_, __) => const PsychBlogPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.psychProfile,
+              builder: (_, __) => const PsychProfilePage(),
+            ),
+          ],
+        ),
       ],
     ),
 
@@ -212,42 +235,54 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
       builder: (context, state, navigationShell) =>
           AdminShell(navigationShell: navigationShell),
       branches: [
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.adminDashboard,
-            builder: (_, __) => const AdminDashboardPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.adminPsychologists,
-            builder: (_, __) => const AdminPsychManagementPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.adminUsers,
-            builder: (_, __) => const AdminUserManagementPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.adminAppointments,
-            builder: (_, __) => const AdminAppointmentsPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.adminBlogs,
-            builder: (_, __) => const AdminBlogManagementPage(),
-          ),
-        ]),
-        StatefulShellBranch(routes: [
-          GoRoute(
-            path: RouteNames.adminSettings,
-            builder: (_, __) => const AdminSettingsPage(),
-          ),
-        ]),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.adminDashboard,
+              builder: (_, __) => const AdminDashboardPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.adminPsychologists,
+              builder: (_, __) => const AdminPsychManagementPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.adminUsers,
+              builder: (_, __) => const AdminUserManagementPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.adminAppointments,
+              builder: (_, __) => const AdminAppointmentsPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.adminBlogs,
+              builder: (_, __) => const AdminBlogManagementPage(),
+            ),
+          ],
+        ),
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: RouteNames.adminSettings,
+              builder: (_, __) => const AdminSettingsPage(),
+            ),
+          ],
+        ),
       ],
     ),
 
@@ -264,6 +299,14 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
       builder: (_, __) => const NotificationsPage(),
     ),
     GoRoute(
+      path: RouteNames.psychNotifications,
+      builder: (_, __) => const NotificationsPage(),
+    ),
+    GoRoute(
+      path: RouteNames.adminNotifications,
+      builder: (_, __) => const NotificationsPage(),
+    ),
+    GoRoute(
       path: RouteNames.userBlogList,
       builder: (_, __) => const BlogListPage(),
     ),
@@ -273,13 +316,13 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
     ),
     GoRoute(
       path: RouteNames.psychBlogDetail,
-      builder: (_, state) => PsychBlogDetailPage(blog: state.extra as BlogEntity),
+      builder: (_, state) =>
+          PsychBlogDetailPage(blog: state.extra as BlogEntity),
     ),
     GoRoute(
       path: RouteNames.psychIncomingCall,
-      builder: (_, state) => PsychIncomingCallScreen(
-        callData: state.extra as IncomingCallData,
-      ),
+      builder: (_, state) =>
+          PsychIncomingCallScreen(callData: state.extra as IncomingCallData),
     ),
     GoRoute(
       path: RouteNames.psychActiveCall,
@@ -297,21 +340,28 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
     GoRoute(
       path: RouteNames.psychologistDetail,
       builder: (_, state) => PsychologistDetailPage(
-          psychologist: state.extra as PsychologistEntity),
+        psychologist: state.extra as PsychologistEntity,
+      ),
     ),
     GoRoute(
       path: RouteNames.slotBooking,
-      builder: (_, state) => SlotBookingPage(
-          psychologist: state.extra as PsychologistEntity),
+      builder: (_, state) =>
+          SlotBookingPage(psychologist: state.extra as PsychologistEntity),
     ),
     GoRoute(
       path: RouteNames.payment,
       builder: (_, state) {
         final extra = state.extra as Map<String, dynamic>;
+        final slot = extra['slot'] as SlotEntity;
         return PaymentPage(
           psychologist: extra['psychologist'] as PsychologistEntity,
-          slot: extra['slot'] as SlotEntity,
+          slot: slot,
           sessionType: extra['sessionType'] as String,
+          // Fall back to the full window when no sub-range was chosen.
+          bookedStartTime:
+              extra['bookedStartTime'] as DateTime? ?? slot.startTime,
+          bookedDurationMinutes:
+              extra['bookedDurationMinutes'] as int? ?? slot.durationMinutes,
         );
       },
     ),
@@ -319,10 +369,17 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
       path: RouteNames.bookingConfirmed,
       builder: (_, state) {
         final extra = state.extra as Map<String, dynamic>;
+        final slot = extra['slot'] as SlotEntity;
         return BookingConfirmedPage(
           psychologist: extra['psychologist'] as PsychologistEntity,
-          slot: extra['slot'] as SlotEntity,
+          slot: slot,
           sessionType: extra['sessionType'] as String,
+          // appointmentId is optional — present after bypass or verified payment
+          appointmentId: extra['appointmentId'] as String?,
+          bookedStartTime:
+              extra['bookedStartTime'] as DateTime? ?? slot.startTime,
+          bookedDurationMinutes:
+              extra['bookedDurationMinutes'] as int? ?? slot.durationMinutes,
         );
       },
     ),
@@ -340,10 +397,9 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
           payload = CallRoutePayload.fromAppointment(extra);
         } else if (extra is Map<String, dynamic>) {
           final appointmentId = (extra['appointmentId'] ?? '').toString();
-          final preferredSessionType =
-              extra['sessionType'] is SessionType
-                  ? extra['sessionType'] as SessionType
-                  : SessionType.video;
+          final preferredSessionType = extra['sessionType'] is SessionType
+              ? extra['sessionType'] as SessionType
+              : SessionType.video;
 
           final psychologist = extra['psychologist'];
           final appointment = extra['appointment'];
@@ -392,6 +448,25 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
       path: RouteNames.callSummary,
       builder: (_, state) =>
           PostCallSummaryScreen(callEnded: state.extra as CallEnded),
+    ),
+    GoRoute(
+      path: RouteNames.userSettings,
+      builder: (_, __) => const UserSettingsPage(),
+    ),
+    GoRoute(
+      path: RouteNames.helpSupport,
+      builder: (_, __) => const HelpSupportPage(),
+    ),
+    GoRoute(
+      path: RouteNames.faqs,
+      builder: (_, state) {
+        // `extra` may carry a category to open on, e.g. from a support link.
+        final extra = state.extra;
+        return FaqPage(
+          initialCategory: extra is FaqCategory ? extra : null,
+          initialQuery: extra is String ? extra : null,
+        );
+      },
     ),
   ],
 );
@@ -443,11 +518,31 @@ class UserShell extends StatelessWidget {
   const UserShell({super.key, required this.navigationShell});
 
   static const _tabs = [
-    _TabItem(icon: Icons.home_outlined, activeIcon: Icons.home_rounded, label: 'Home'),
-    _TabItem(icon: Icons.headphones_outlined, activeIcon: Icons.headphones_rounded, label: 'Consult'),
-    _TabItem(icon: Icons.calendar_today_outlined, activeIcon: Icons.calendar_today_rounded, label: 'Sessions'),
-    _TabItem(icon: Icons.account_balance_wallet_outlined, activeIcon: Icons.account_balance_wallet_rounded, label: 'Wallet'),
-    _TabItem(icon: Icons.person_outline_rounded, activeIcon: Icons.person_rounded, label: 'Profile'),
+    _TabItem(
+      icon: Icons.home_outlined,
+      activeIcon: Icons.home_rounded,
+      label: 'Home',
+    ),
+    _TabItem(
+      icon: Icons.headphones_outlined,
+      activeIcon: Icons.headphones_rounded,
+      label: 'Consult',
+    ),
+    _TabItem(
+      icon: Icons.calendar_today_outlined,
+      activeIcon: Icons.calendar_today_rounded,
+      label: 'Sessions',
+    ),
+    _TabItem(
+      icon: Icons.account_balance_wallet_outlined,
+      activeIcon: Icons.account_balance_wallet_rounded,
+      label: 'Wallet',
+    ),
+    _TabItem(
+      icon: Icons.person_outline_rounded,
+      activeIcon: Icons.person_rounded,
+      label: 'Profile',
+    ),
   ];
 
   @override
@@ -474,7 +569,11 @@ class _TabItem {
   final IconData icon;
   final IconData activeIcon;
   final String label;
-  const _TabItem({required this.icon, required this.activeIcon, required this.label});
+  const _TabItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+  });
 }
 
 class _UserBottomNav extends StatelessWidget {
@@ -482,15 +581,28 @@ class _UserBottomNav extends StatelessWidget {
   final void Function(int) onTap;
   final List<_TabItem> tabs;
 
-  const _UserBottomNav({required this.currentIndex, required this.onTap, required this.tabs});
+  const _UserBottomNav({
+    required this.currentIndex,
+    required this.onTap,
+    required this.tabs,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: WalkthroughKeys.userNavBar,
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(top: BorderSide(color: Color(0xFFE5E5EA), width: 0.5)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 20, offset: const Offset(0, -4))],
+        border: const Border(
+          top: BorderSide(color: Color(0xFFE5E5EA), width: 0.5),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: SafeArea(
         top: false,
@@ -508,7 +620,9 @@ class _UserBottomNav extends StatelessWidget {
                     duration: const Duration(milliseconds: 200),
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     decoration: BoxDecoration(
-                      color: active ? const Color(0xFF5E5CE6).withOpacity(0.12) : Colors.transparent,
+                      color: active
+                          ? const Color(0xFF5E5CE6).withOpacity(0.12)
+                          : Colors.transparent,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
@@ -517,15 +631,21 @@ class _UserBottomNav extends StatelessWidget {
                         Icon(
                           active ? tab.activeIcon : tab.icon,
                           size: 22,
-                          color: active ? const Color(0xFF5E5CE6) : const Color(0xFF8E8E93),
+                          color: active
+                              ? const Color(0xFF5E5CE6)
+                              : const Color(0xFF8E8E93),
                         ),
                         const SizedBox(height: 3),
                         Text(
                           tab.label,
                           style: TextStyle(
                             fontSize: 10,
-                            fontWeight: active ? FontWeight.w700 : FontWeight.w400,
-                            color: active ? const Color(0xFF5E5CE6) : const Color(0xFF8E8E93),
+                            fontWeight: active
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                            color: active
+                                ? const Color(0xFF5E5CE6)
+                                : const Color(0xFF8E8E93),
                           ),
                         ),
                       ],
@@ -569,8 +689,8 @@ class _PsychShellState extends State<PsychShell> {
       final service = sl<PsychCallSocketService>();
       await service.connect();
       _callSub = service.onIncomingCall.listen(_onIncomingCall);
-      // Socket is live — start the HTTP-polling fallback.
-      _startPolling();
+      // Socket is live — HTTP-polling fallback is disabled; socket handles incoming calls.
+      // _startPolling();
     } catch (e) {
       debugPrint('[PsychShell] Failed to connect call socket: $e');
       // Retry after 5 seconds — handles transient startup network issues.
@@ -636,29 +756,35 @@ class _PsychShellState extends State<PsychShell> {
       child: Scaffold(
         body: widget.navigationShell,
         bottomNavigationBar: NavigationBar(
+          key: WalkthroughKeys.psychNavBar,
           selectedIndex: widget.navigationShell.currentIndex,
           onDestinationSelected: widget.navigationShell.goBranch,
           destinations: const [
             NavigationDestination(
-                icon: Icon(Icons.dashboard_outlined),
-                selectedIcon: Icon(Icons.dashboard_rounded),
-                label: 'Dashboard'),
+              icon: Icon(Icons.dashboard_outlined),
+              selectedIcon: Icon(Icons.dashboard_rounded),
+              label: 'Dashboard',
+            ),
             NavigationDestination(
-                icon: Icon(Icons.calendar_view_week_outlined),
-                selectedIcon: Icon(Icons.calendar_view_week_rounded),
-                label: 'Slots'),
+              icon: Icon(Icons.calendar_view_week_outlined),
+              selectedIcon: Icon(Icons.calendar_view_week_rounded),
+              label: 'Slots',
+            ),
             NavigationDestination(
-                icon: Icon(Icons.video_call_outlined),
-                selectedIcon: Icon(Icons.video_call_rounded),
-                label: 'Sessions'),
+              icon: Icon(Icons.video_call_outlined),
+              selectedIcon: Icon(Icons.video_call_rounded),
+              label: 'Sessions',
+            ),
             NavigationDestination(
-                icon: Icon(Icons.article_outlined),
-                selectedIcon: Icon(Icons.article_rounded),
-                label: 'Blogs'),
+              icon: Icon(Icons.article_outlined),
+              selectedIcon: Icon(Icons.article_rounded),
+              label: 'Blogs',
+            ),
             NavigationDestination(
-                icon: Icon(Icons.person_outline_rounded),
-                selectedIcon: Icon(Icons.person_rounded),
-                label: 'Profile'),
+              icon: Icon(Icons.person_outline_rounded),
+              selectedIcon: Icon(Icons.person_rounded),
+              label: 'Profile',
+            ),
           ],
         ),
       ),
@@ -681,35 +807,41 @@ class AdminShell extends StatelessWidget {
       child: Scaffold(
         body: navigationShell,
         bottomNavigationBar: NavigationBar(
-        selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: navigationShell.goBranch,
-        destinations: const [
-          NavigationDestination(
+          selectedIndex: navigationShell.currentIndex,
+          onDestinationSelected: navigationShell.goBranch,
+          destinations: const [
+            NavigationDestination(
               icon: Icon(Icons.speed_outlined),
               selectedIcon: Icon(Icons.speed_rounded),
-              label: 'Dashboard'),
-          NavigationDestination(
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.psychology_outlined),
               selectedIcon: Icon(Icons.psychology_rounded),
-              label: 'Psychologists'),
-          NavigationDestination(
+              label: 'Psychologists',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.people_outline_rounded),
               selectedIcon: Icon(Icons.people_rounded),
-              label: 'Users'),
-          NavigationDestination(
+              label: 'Users',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.event_outlined),
               selectedIcon: Icon(Icons.event_rounded),
-              label: 'Appointments'),
-          NavigationDestination(
+              label: 'Appointments',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.article_outlined),
               selectedIcon: Icon(Icons.article_rounded),
-              label: 'Blogs'),
-          NavigationDestination(
+              label: 'Blogs',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.settings_outlined),
               selectedIcon: Icon(Icons.settings_rounded),
-              label: 'Settings'),
-        ],
-      ),
+              label: 'Settings',
+            ),
+          ],
+        ),
       ),
     );
   }

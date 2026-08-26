@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Mindzep</string>
+	<string>MindZep</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -45,9 +45,79 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- ── Privacy usage descriptions ──────────────────────────────────────
+	     Every framework linked into the binary that touches a protected
+	     resource needs a purpose string, or App Store Connect rejects the
+	     upload. Camera/microphone are used by Agora calls; the photo library
+	     strings cover image_picker / file_picker. -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Mindzep needs microphone access for real-time therapy calls.</string>
+	<string>MindZep needs microphone access so you can talk to your psychologist during a session.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Mindzep needs camera access for video therapy sessions.</string>
+	<string>MindZep needs camera access for video therapy sessions.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MindZep needs photo library access so you can choose a profile picture and attach documents.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>MindZep needs permission to save images such as payment receipts to your photo library.</string>
+
+	<!-- ── Background execution ────────────────────────────────────────────
+	     `audio` keeps an in-progress therapy call alive when the user leaves
+	     the app; `remote-notification` lets FCM deliver data-only pushes.
+	     Do NOT add `voip` unless PushKit is actually implemented — Apple
+	     rejects apps that declare it without a PKPushRegistry. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
+
+	<!-- ── App Transport Security ──────────────────────────────────────────
+	     No exceptions: the app must talk to an HTTPS backend on iOS.
+	     A cleartext `http://` host (or a raw IP literal, which ATS exception
+	     domains cannot target at all) will fail every request silently.
+	     For local/dev runs against a plain-HTTP backend, pass an HTTPS URL:
+	       --dart-define=API_BASE_URL=https://staging-api.zygonich.com
+	       --dart-define=SOCKET_BASE_URL=https://staging-api.zygonich.com -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+	</dict>
+
+	<!-- ── UPI apps Cashfree hands off to ──────────────────────────────── -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>gpay</string>
+		<string>phonepe</string>
+		<string>paytmmp</string>
+		<string>upi</string>
+		<string>bhim</string>
+		<string>credpay</string>
+		<string>amazonpay</string>
+	</array>
+
+	<!-- ── Google Sign-In ──────────────────────────────────────────────────
+	     REQUIRED before Google login works on iOS. Open the
+	     GoogleService-Info.plist downloaded from Firebase, copy its
+	     REVERSED_CLIENT_ID value (looks like
+	     com.googleusercontent.apps.788249689957-xxxxxxxx) and paste it as the
+	     CFBundleURLSchemes string below, then delete this comment. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>REPLACE_WITH_REVERSED_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
+
+	<!-- ── Export compliance ───────────────────────────────────────────────
+	     The app uses only standard HTTPS/TLS, which is exempt. Declaring this
+	     here stops App Store Connect asking on every single upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

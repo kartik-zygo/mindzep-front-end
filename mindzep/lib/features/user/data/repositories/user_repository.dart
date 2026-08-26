@@ -33,6 +33,15 @@ class UserRepository {
     );
   }
 
+  Future<void> deleteAccount() {
+    return _dioClient.delete<void>(
+      ApiEndpoints.meAccount,
+      requiresAuth: true,
+      extractData: false,
+      parser: (_) {},
+    );
+  }
+
   Future<ExtendedProfileModel> getMyProfile() {
     return _dioClient.get<ExtendedProfileModel>(
       ApiEndpoints.meProfile,
@@ -106,14 +115,14 @@ class UserRepository {
 
   Future<void> markAllMyNotificationsRead() {
     return _dioClient.put<void>(
-      ApiEndpoints.meNotificationsReadAll,
+      ApiEndpoints.notificationsReadAll,
       parser: (_) => null,
     );
   }
 
   Future<void> markMyNotificationRead(String notificationId) {
     return _dioClient.put<void>(
-      ApiEndpoints.meNotificationRead(notificationId),
+      ApiEndpoints.notificationRead(notificationId),
       parser: (_) => null,
     );
   }

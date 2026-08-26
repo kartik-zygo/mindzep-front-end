@@ -30,7 +30,7 @@ const _mainNav = [
 const _accountNav = [
   _NavItem(label: 'My Profile', icon: Icons.person_rounded, route: RouteNames.userProfile),
   _NavItem(label: 'Notifications', icon: Icons.notifications_rounded, route: RouteNames.userNotifications, badge: '3'),
-  _NavItem(label: 'Settings', icon: Icons.settings_rounded, route: ''),
+  _NavItem(label: 'Settings', icon: Icons.settings_rounded, route: RouteNames.userSettings),
 ];
 
 // ── Drawer widget ─────────────────────────────────────────────────────────────
@@ -279,9 +279,20 @@ class _AppUserDrawerState extends State<AppUserDrawer> {
 
                           // Help
                           _PlainNavTile(
+                            icon: Icons.quiz_outlined,
+                            label: 'FAQs',
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.faqs);
+                            },
+                          ),
+                          _PlainNavTile(
                             icon: Icons.help_outline_rounded,
                             label: 'Help & Support',
-                            onTap: () => Navigator.of(context).pop(),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.helpSupport);
+                            },
                           ),
 
                           const SizedBox(height: 12),
@@ -771,9 +782,20 @@ class _AppPsychDrawerState extends State<AppPsychDrawer> {
                           const SizedBox(height: 6),
 
                           _PlainNavTile(
+                            icon: Icons.quiz_outlined,
+                            label: 'FAQs',
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.faqs);
+                            },
+                          ),
+                          _PlainNavTile(
                             icon: Icons.help_outline_rounded,
                             label: 'Help & Support',
-                            onTap: () => Navigator.of(context).pop(),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.helpSupport);
+                            },
                           ),
 
                           const SizedBox(height: 12),

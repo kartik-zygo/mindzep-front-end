@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../../../core/network/api_endpoints.dart';
 import '../../../../../core/network/dio_client.dart';
 import '../../../../../core/utils/json_readers.dart';
@@ -13,6 +15,7 @@ class NotificationRepository {
     return _dioClient.get<List<NotificationModel>>(
       ApiEndpoints.notifications,
       parser: (json) {
+        debugPrint('[NotificationRepository] Raw response: $json');
         final m = JsonReaders.asMap(json);
         final list = m.containsKey('notifications') ? m['notifications'] : json;
         return JsonReaders.asMapList(list)

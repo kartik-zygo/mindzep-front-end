@@ -35,12 +35,10 @@ class RegisterRequested extends AuthEvent {
   List<Object?> get props => [email, role];
 }
 
+/// Runs the full Google Sign-In flow: interactive account picker → idToken →
+/// `POST /auth/google`. Shared by the login and signup screens.
 class GoogleSignInRequested extends AuthEvent {
-  final String idToken;
-  const GoogleSignInRequested({this.idToken = ''});
-
-  @override
-  List<Object?> get props => [idToken];
+  const GoogleSignInRequested();
 }
 
 class LogoutRequested extends AuthEvent {
@@ -73,10 +71,7 @@ class ResendOtpRequested extends AuthEvent {
   final String identifier;
   final String purpose;
 
-  const ResendOtpRequested({
-    required this.identifier,
-    required this.purpose,
-  });
+  const ResendOtpRequested({required this.identifier, required this.purpose});
 
   @override
   List<Object?> get props => [identifier, purpose];
@@ -121,4 +116,8 @@ class UpdateFcmTokenRequested extends AuthEvent {
 
   @override
   List<Object?> get props => [fcmToken];
+}
+
+class SessionRefreshRequested extends AuthEvent {
+  const SessionRefreshRequested();
 }

@@ -13,7 +13,6 @@ import '../../../../user/blog/data/repositories/blog_repository.dart';
 
 class AdminDashboardPage extends StatefulWidget {
   const AdminDashboardPage({super.key});
-
   @override
   State<AdminDashboardPage> createState() => _AdminDashboardPageState();
 }
@@ -71,7 +70,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
 
       final psychList = psychologists.map(_asMap).toList();
       final pendingPsychologists = psychList
-          .where((psych) => !_readBool(psych, ['isActive', 'active'], fallback: true))
+          .where(
+            (psych) =>
+                !_readBool(psych, ['isActive', 'active'], fallback: true),
+          )
           .length;
 
       if (!mounted) return;
@@ -162,9 +164,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     final totalUsers = _metricInt('totalUsers');
     final activePsychologists = _metricInt('activePsychologists');
     final sessionsToday = _metricInt('sessionsToday');
-    final revenueThisMonth = _metricDouble(
-      const ['revenueThisMonth', 'totalRevenue', 'revenueToday'],
-    );
+    final revenueThisMonth = _metricDouble(const [
+      'revenueThisMonth',
+      'totalRevenue',
+      'revenueToday',
+    ]);
     final revenuePoints = _revenue.isNotEmpty
         ? _revenue
         : const <Map<String, dynamic>>[
@@ -208,7 +212,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                               Text(
                                 'Admin Panel',
                                 style: TextStyle(
-                                    color: Colors.white70, fontSize: 13),
+                                  color: Colors.white70,
+                                  fontSize: 13,
+                                ),
                               ),
                               Text(
                                 'MindZep Admin',
@@ -222,45 +228,51 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                             ],
                           ),
                           const Spacer(),
-                          Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.25),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
+                          GestureDetector(
+                            onTap: () =>
+                                context.push(RouteNames.adminNotifications),
+                            behavior: HitTestBehavior.opaque,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.25),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
                                     Icons.notifications_outlined,
                                     color: Colors.white,
-                                    size: 22),
-                              ),
-                              if (totalAlerts > 0)
-                                Positioned(
-                                  right: -2,
-                                  top: -2,
-                                  child: Container(
-                                    width: 18,
-                                    height: 18,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF1C1C1E),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        '$totalAlerts',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
+                                    size: 22,
+                                  ),
+                                ),
+                                if (totalAlerts > 0)
+                                  Positioned(
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      width: 18,
+                                      height: 18,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFF1C1C1E),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          '$totalAlerts',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -324,8 +336,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                     label: 'Therapists awaiting approval',
                     icon: Icons.psychology_rounded,
                     color: AppColors.warning,
-                    onTap: () =>
-                        context.go(RouteNames.adminPsychologists),
+                    onTap: () => context.go(RouteNames.adminPsychologists),
                   ),
                   const SizedBox(height: AppDimensions.paddingS),
                 ],
@@ -351,12 +362,19 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Container(
-                            width: 38, height: 38,
+                            width: 38,
+                            height: 38,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)]),
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
+                              ),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.bar_chart_rounded, color: Colors.white, size: 20),
+                            child: const Icon(
+                              Icons.bar_chart_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -366,7 +384,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                                 Text(
                                   'Monthly Revenue',
                                   style: AppTextStyles.caption1.copyWith(
-                                      color: AppColors.textSecondary),
+                                    color: AppColors.textSecondary,
+                                  ),
                                 ),
                                 Text(
                                   '₹${(revenueThisMonth / 1000).toStringAsFixed(1)}K',
@@ -400,24 +419,30 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                                   showTitles: true,
                                   getTitlesWidget: (v, _) {
                                     final idx = v.toInt();
-                                    if (idx < 0 || idx >= revenuePoints.length) {
+                                    if (idx < 0 ||
+                                        idx >= revenuePoints.length) {
                                       return const SizedBox.shrink();
                                     }
                                     return Text(
-                                      revenuePoints[idx]['day'] as String? ?? '',
+                                      revenuePoints[idx]['day'] as String? ??
+                                          '',
                                       style: AppTextStyles.caption2.copyWith(
-                                          color: AppColors.textSecondary),
+                                        color: AppColors.textSecondary,
+                                      ),
                                     );
                                   },
                                   reservedSize: 22,
                                 ),
                               ),
                               leftTitles: const AxisTitles(
-                                  sideTitles: SideTitles(showTitles: false)),
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
                               topTitles: const AxisTitles(
-                                  sideTitles: SideTitles(showTitles: false)),
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
                               rightTitles: const AxisTitles(
-                                  sideTitles: SideTitles(showTitles: false)),
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
                             ),
                             borderData: FlBorderData(show: false),
                             lineBarsData: [
@@ -425,17 +450,19 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                                 spots: revenuePoints
                                     .asMap()
                                     .entries
-                                    .map((e) => FlSpot(
-                                          e.key.toDouble(),
-                                      (revenuePoints[e.key]['amount'] as num)
-                                        .toDouble(),
-                                        ))
+                                    .map(
+                                      (e) => FlSpot(
+                                        e.key.toDouble(),
+                                        (revenuePoints[e.key]['amount'] as num)
+                                            .toDouble(),
+                                      ),
+                                    )
                                     .toList(),
                                 isCurved: true,
                                 gradient: const LinearGradient(
                                   colors: [
                                     Color(0xFFFF6B6B),
-                                    Color(0xFFFF8E53)
+                                    Color(0xFFFF8E53),
                                   ],
                                 ),
                                 barWidth: 2.5,
@@ -465,7 +492,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 Row(
                   children: [
                     Container(
-                      width: 4, height: 18,
+                      width: 4,
+                      height: 18,
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
                           colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
@@ -476,9 +504,12 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text('Quick Actions',
-                        style: AppTextStyles.headline
-                            .copyWith(color: AppColors.textPrimary)),
+                    Text(
+                      'Quick Actions',
+                      style: AppTextStyles.headline.copyWith(
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppDimensions.paddingS),
@@ -489,8 +520,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                       icon: Icons.check_circle_rounded,
                       color: AppColors.success,
                       bgColor: AppColors.success.withOpacity(0.1),
-                      onTap: () =>
-                          context.go(RouteNames.adminPsychologists),
+                      onTap: () => context.go(RouteNames.adminPsychologists),
                     ),
                     const SizedBox(width: AppDimensions.paddingS),
                     _QuickAction(
@@ -519,7 +549,8 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                     Row(
                       children: [
                         Container(
-                          width: 4, height: 18,
+                          width: 4,
+                          height: 18,
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
                               colors: [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
@@ -530,63 +561,84 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text('Recent Psychologists',
-                            style: AppTextStyles.headline
-                                .copyWith(color: AppColors.textPrimary)),
+                        Text(
+                          'Recent Psychologists',
+                          style: AppTextStyles.headline.copyWith(
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
                       ],
                     ),
                     GestureDetector(
                       onTap: () => context.go(RouteNames.adminUsers),
                       child: Text(
                         'See All',
-                        style: AppTextStyles.footnote
-                            .copyWith(color: const Color(0xFFFF6B6B), fontWeight: FontWeight.w600),
+                        style: AppTextStyles.footnote.copyWith(
+                          color: const Color(0xFFFF6B6B),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: AppDimensions.paddingS),
                 ..._recentPsychologists.map(
-                      (u) => AppCard(
-                        margin: const EdgeInsets.only(
-                            bottom: AppDimensions.paddingS),
-                        child: Row(
-                          children: [
-                            AppAvatar(
-                              imageUrl: (u['user']['avatarUrl'] ??
+                  (u) => AppCard(
+                    margin: const EdgeInsets.only(
+                      bottom: AppDimensions.paddingS,
+                    ),
+                    child: Row(
+                      children: [
+                        AppAvatar(
+                          imageUrl:
+                              (u['user']['avatarUrl'] ??
                                       u['avatar'] ??
                                       u['profilePicture'])
                                   ?.toString(),
-                              radius: 20,
-                              initials: ((u['user']['name'] ?? 'U').toString()[0]),
-                            ),
-                            const SizedBox(width: AppDimensions.paddingM),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text((u['user']['name'] ?? 'Psychologist').toString(),
-                                      style: AppTextStyles.subheadline
-                                          .copyWith(
-                                              fontWeight: FontWeight.w600)),
-                                  Text((u['user']['email'] ?? '-').toString(),
-                                      style: AppTextStyles.caption1.copyWith(
-                                          color: AppColors.textSecondary)),
-                                ],
-                              ),
-                            ),
-                            _StatusPill(
-                              label: _readBool(u, ['isActive', 'active'], fallback: true)
-                                  ? 'Active'
-                                  : 'Suspended',
-                              color: _readBool(u, ['isActive', 'active'], fallback: true)
-                                  ? AppColors.success
-                                  : AppColors.error,
-                            ),
-                          ],
+                          radius: 20,
+                          initials: ((u['user']['name'] ?? 'U').toString()[0]),
                         ),
-                      ),
+                        const SizedBox(width: AppDimensions.paddingM),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (u['user']['name'] ?? 'Psychologist')
+                                    .toString(),
+                                style: AppTextStyles.subheadline.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                (u['user']['email'] ?? '-').toString(),
+                                style: AppTextStyles.caption1.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _StatusPill(
+                          label:
+                              _readBool(u, [
+                                'isActive',
+                                'active',
+                              ], fallback: true)
+                              ? 'Active'
+                              : 'Suspended',
+                          color:
+                              _readBool(u, [
+                                'isActive',
+                                'active',
+                              ], fallback: true)
+                              ? AppColors.success
+                              : AppColors.error,
+                        ),
+                      ],
                     ),
+                  ),
+                ),
                 const SizedBox(height: 12),
               ]),
             ),
@@ -628,15 +680,18 @@ class _StatCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(value,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  )),
-              Text(label,
-                  style:
-                      const TextStyle(color: Colors.white70, fontSize: 11)),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white70, fontSize: 11),
+              ),
             ],
           ),
         ],
@@ -691,13 +746,18 @@ class _PendingAlert extends StatelessWidget {
                   Text(
                     '$count Pending',
                     style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: color),
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
                   ),
-                  Text(label,
-                      style: TextStyle(
-                          fontSize: 12, color: color.withOpacity(0.75))),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color.withOpacity(0.75),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -742,7 +802,11 @@ class _QuickAction extends StatelessWidget {
                   color: bgColor,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
-                    BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4)),
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
                   ],
                 ),
                 child: Icon(icon, color: color, size: 24),
@@ -751,8 +815,10 @@ class _QuickAction extends StatelessWidget {
               Text(
                 label,
                 textAlign: TextAlign.center,
-                style: AppTextStyles.caption1
-                    .copyWith(fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                style: AppTextStyles.caption1.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
               ),
             ],
           ),
@@ -780,8 +846,10 @@ class _StatusPill extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: AppTextStyles.caption1
-            .copyWith(color: color, fontWeight: FontWeight.w600),
+        style: AppTextStyles.caption1.copyWith(
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

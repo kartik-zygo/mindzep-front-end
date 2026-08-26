@@ -102,6 +102,7 @@ class _BroadcastCallPageState extends State<BroadcastCallPage>
           current is BroadcastAccepted ||
           current is BroadcastTimeout ||
           current is BroadcastCancelled ||
+          current is BroadcastInsufficientBalance ||
           current is BroadcastError,
       listener: (context, state) {
         if (state is BroadcastAccepted) {
@@ -120,6 +121,8 @@ class _BroadcastCallPageState extends State<BroadcastCallPage>
           );
         } else if (state is BroadcastCancelled) {
           context.go(RouteNames.userHome);
+        } else if (state is BroadcastInsufficientBalance) {
+          _showInsufficientBalanceDialog(context, state);
         } else if (state is BroadcastError) {
           AppSnackbar.show(
             context,
@@ -335,6 +338,79 @@ class _BroadcastCallPageState extends State<BroadcastCallPage>
           ),
         );
       },
+    );
+  }
+
+  /// HTTP 402 INSUFFICIENT_WALLET_BALANCE — show current balance, the minimum
+  /// needed for one billed minute, and a shortcut to the top-up screen.
+  void _showInsufficientBalanceDialog(
+    BuildContext context,
+    BroadcastInsufficientBalance state,
+  ) {
+    final error = state.error;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Row(children: [
+          Icon(Icons.account_balance_wallet_rounded,
+              color: Color(0xFFFF9500), size: 22),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text('Insufficient Balance',
+                style: TextStyle(color: Colors.white, fontSize: 18)),
+          ),
+        ]),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(error.message,
+                style: const TextStyle(color: Colors.white70, fontSize: 14)),
+            const SizedBox(height: 16),
+            _balanceRow('Current balance',
+                '₹${error.walletBalance.toStringAsFixed(0)}'),
+            const SizedBox(height: 6),
+            _balanceRow('Minimum required',
+                '₹${error.minimumRequired.toStringAsFixed(0)}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              context.go(RouteNames.userHome);
+            },
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF5E5CE6)),
+            onPressed: () {
+              Navigator.of(context).pop();
+              context.go(RouteNames.userWallet);
+            },
+            child: const Text('Add Money'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _balanceRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label,
+            style: const TextStyle(color: Colors.white54, fontSize: 13)),
+        Text(value,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600)),
+      ],
     );
   }
 

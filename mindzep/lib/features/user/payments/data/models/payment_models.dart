@@ -20,6 +20,29 @@ class CreateOrderRequest {
   }
 }
 
+/// Request to pay for an appointment straight from the wallet balance,
+/// bypassing the Cashfree gateway. The backend response is parsed with
+/// [PaymentVerifyResult] (a `paid`/`failed` status).
+class WalletPaymentRequest {
+  final String type;
+  final double amount;
+  final String? appointmentId;
+
+  const WalletPaymentRequest({
+    required this.type,
+    required this.amount,
+    this.appointmentId,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type,
+      'amount': amount,
+      if (appointmentId != null) 'appointmentId': appointmentId,
+    };
+  }
+}
+
 class CashfreeOrderModel {
   final String orderId;
   final String paymentSessionId;
@@ -93,6 +116,57 @@ class VerifyPaymentRequest {
         'cfPaymentId': cfPaymentId,
     };
   }
+}
+
+/// Typed result of `POST /payments/verify`.
+///
+/// In production the Cashfree webhook may land 1–5 s after the SDK success
+/// callback, so a 2xx verify response can still carry a "not paid yet"
+/// status. Callers should poll (verify again or check the wallet) before
+/// showing a failure state.
+class PaymentVerifyResult {
+  final String status;
+  final String message;
+  final Map<String, dynamic> raw;
+
+  const PaymentVerifyResult({
+    required this.status,
+    required this.message,
+    required this.raw,
+  });
+
+  factory PaymentVerifyResult.fromJson(Map<String, dynamic> json) {
+    final payment = JsonReaders.asMap(
+      JsonReaders.readAny(json, ['payment', 'order']),
+    );
+    final status = JsonReaders.readString(json, ['status', 'paymentStatus'])
+            .trim()
+            .isNotEmpty
+        ? JsonReaders.readString(json, ['status', 'paymentStatus'])
+        : JsonReaders.readString(payment, ['status', 'paymentStatus']);
+
+    return PaymentVerifyResult(
+      status: status.trim().toLowerCase(),
+      message: JsonReaders.readString(json, ['message']),
+      raw: json,
+    );
+  }
+
+  static const _paidStatuses = {'paid', 'success', 'completed', 'captured'};
+  static const _pendingStatuses = {
+    'pending',
+    'created',
+    'not_paid',
+    'active',
+    'processing',
+  };
+
+  /// Backend confirmed the money. An empty status on a 2xx response is also
+  /// treated as paid (legacy verify responses carry no status field).
+  bool get isPaid => status.isEmpty || _paidStatuses.contains(status);
+
+  /// Webhook hasn't landed yet — worth polling before declaring failure.
+  bool get isPendingWebhook => _pendingStatuses.contains(status);
 }
 
 class PaymentRecordModel {

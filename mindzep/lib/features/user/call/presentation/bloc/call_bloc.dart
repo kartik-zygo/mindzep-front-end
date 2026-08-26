@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../../core/config/app_config.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/utils/currency_utils.dart';
 import '../../../../../core/utils/json_readers.dart';
 import '../../data/agora/agora_call_engine.dart';
@@ -144,6 +145,30 @@ class _CallRejected extends CallEvent {
   List<Object?> get props => [reason];
 }
 
+/// A heartbeat response arrived (billing snapshot / server-side call end).
+class _HeartbeatArrived extends CallEvent {
+  final CallHeartbeatResponse response;
+  const _HeartbeatArrived(this.response);
+  @override
+  List<Object?> get props => [response];
+}
+
+/// `call:force-end` socket event — the server already terminated the call.
+class _ForceEndReceived extends CallEvent {
+  final CallForceEndEvent payload;
+  const _ForceEndReceived(this.payload);
+  @override
+  List<Object?> get props => [payload];
+}
+
+/// `call:low-balance` socket event — warn before the cutoff.
+class _LowBalanceReceived extends CallEvent {
+  final CallLowBalanceEvent payload;
+  const _LowBalanceReceived(this.payload);
+  @override
+  List<Object?> get props => [payload];
+}
+
 // ─── States ───────────────────────────────────────────────────────────────────
 
 abstract class CallState extends Equatable {
@@ -176,6 +201,21 @@ class CallActive extends CallState {
   final bool isFreePhase;
   final int? remoteUid;
   final String channelName;
+  final int freeMinutes;
+
+  /// True for prepaid appointments — the call carries no per-minute charge, so
+  /// the UI hides all billing chips.
+  final bool isPrepaid;
+
+  /// Live billing snapshot from the latest heartbeat (null until the backend
+  /// starts billing — e.g. before the call is connected server-side).
+  final CallBillingSnapshot? billing;
+
+  /// True while the low-balance warning banner should be visible.
+  final bool showLowBalanceBanner;
+
+  /// Server-provided low balance warning text (fallback copy applied in UI).
+  final String? lowBalanceMessage;
 
   const CallActive({
     required this.psychologistName,
@@ -188,6 +228,11 @@ class CallActive extends CallState {
     this.isFreePhase = true,
     this.remoteUid,
     this.channelName = '',
+    this.freeMinutes = 0,
+    this.isPrepaid = false,
+    this.billing,
+    this.showLowBalanceBanner = false,
+    this.lowBalanceMessage,
   });
 
   CallActive copyWith({
@@ -200,6 +245,10 @@ class CallActive extends CallState {
     int? remoteUid,
     bool clearRemoteUid = false,
     String? channelName,
+    int? freeMinutes,
+    CallBillingSnapshot? billing,
+    bool? showLowBalanceBanner,
+    String? lowBalanceMessage,
   }) =>
       CallActive(
         psychologistName: psychologistName,
@@ -212,6 +261,11 @@ class CallActive extends CallState {
         isFreePhase: isFreePhase ?? this.isFreePhase,
         remoteUid: clearRemoteUid ? null : (remoteUid ?? this.remoteUid),
         channelName: channelName ?? this.channelName,
+        freeMinutes: freeMinutes ?? this.freeMinutes,
+        isPrepaid: isPrepaid,
+        billing: billing ?? this.billing,
+        showLowBalanceBanner: showLowBalanceBanner ?? this.showLowBalanceBanner,
+        lowBalanceMessage: lowBalanceMessage ?? this.lowBalanceMessage,
       );
 
   @override
@@ -224,6 +278,15 @@ class CallActive extends CallState {
         isFreePhase,
         remoteUid,
         channelName,
+        freeMinutes,
+        isPrepaid,
+        billing?.walletBalance,
+        billing?.remainingMinutes,
+        billing?.chargedSoFar,
+        billing?.freeSecondsLeft,
+        billing?.lowBalance,
+        showLowBalanceBanner,
+        lowBalanceMessage,
       ];
 }
 
@@ -231,13 +294,29 @@ class CallEnded extends CallState {
   final int totalSeconds;
   final double totalCharge;
   final String psychologistName;
+
+  /// user_ended | wallet_exhausted | heartbeat_timeout
+  final String endReason;
+
+  /// Server-provided end message (e.g. wallet exhaustion copy).
+  final String? message;
+
+  /// Rupees already collected from the wallet during the call, when the
+  /// /calls/end response includes billingBreakdown.paidFromWallet.
+  final double? paidFromWallet;
+
   const CallEnded({
     required this.totalSeconds,
     required this.totalCharge,
     required this.psychologistName,
+    this.endReason = 'user_ended',
+    this.message,
+    this.paidFromWallet,
   });
+
   @override
-  List<Object?> get props => [totalSeconds, totalCharge, psychologistName];
+  List<Object?> get props =>
+      [totalSeconds, totalCharge, psychologistName, endReason, message, paidFromWallet];
 }
 
 class WalletExhausted extends CallEnded {
@@ -245,7 +324,9 @@ class WalletExhausted extends CallEnded {
     required super.totalSeconds,
     required super.totalCharge,
     required super.psychologistName,
-  });
+    super.message,
+    super.paidFromWallet,
+  }) : super(endReason: 'wallet_exhausted');
 }
 
 class CallErrorState extends CallState {
@@ -257,9 +338,22 @@ class CallErrorState extends CallState {
   List<Object?> get props => [message];
 }
 
+/// Call start rejected with HTTP 402 INSUFFICIENT_WALLET_BALANCE.
+class CallInsufficientBalance extends CallState {
+  final InsufficientBalanceError error;
+
+  const CallInsufficientBalance(this.error);
+
+  @override
+  List<Object?> get props =>
+      [error.walletBalance, error.minimumRequired, error.message];
+}
+
 // ─── BLoC ────────────────────────────────────────────────────────────────────
 
 class CallBloc extends Bloc<CallEvent, CallState> {
+  static const Duration _heartbeatInterval = Duration(seconds: 20);
+
   final CallRepository _callRepository;
   final AgoraCallEngine _agoraCallEngine;
   final CallSocketManager _callSocketManager;
@@ -275,10 +369,18 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   int _elapsedSeconds = 0;
   double _ratePerMinute = 10.0;
   int _freeMinutes = 2;
-  double _walletBalance = 0;
-  bool _walletDepleted = false;
   String _channelName = '';
   bool _isVideoEnabled = true;
+
+  /// True when the appointment was paid upfront (prepaid). The backend then
+  /// reports `ratePerMinute == 0`, bills nothing during the call, and the UI
+  /// hides all per-minute / free-minute / talk-time billing chips.
+  bool _isPrepaid = false;
+  CallBillingSnapshot? _latestBilling;
+
+  /// Set the moment any end path wins (user end / force-end socket /
+  /// heartbeat callEnded). All other end paths become no-ops.
+  bool _isFinalizing = false;
 
   CallBloc({
     required CallRepository callRepository,
@@ -295,6 +397,9 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     on<CallConnected>(_onConnected);
     on<TimerTick>(_onTick);
     on<EndCall>(_onEndCall);
+    on<_HeartbeatArrived>(_onHeartbeatArrived);
+    on<_ForceEndReceived>(_onForceEndReceived);
+    on<_LowBalanceReceived>(_onLowBalanceReceived);
     on<ToggleMute>(_onToggleMute);
     on<ToggleVideo>(_onToggleVideo);
     on<ToggleSpeaker>(_onToggleSpeaker);
@@ -317,8 +422,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     _psychologistName = event.psychologistName ?? 'Psychologist';
     _psychologistAvatar = event.psychologistAvatar;
     _isVideoEnabled = event.enableVideo;
-    _walletBalance = event.walletBalance;
-    _walletDepleted = false;
+    _isFinalizing = false;
+    _latestBilling = null;
 
     emit(CallConnecting(
       psychologistName: _psychologistName,
@@ -332,6 +437,9 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       final broadcast =
           await _callRepository.broadcastInitiateCall(appointmentId);
 
+      // A prepaid appointment comes back with ratePerMinute == 0 (charged in
+      // full at booking). Pay-as-you-go calls return a positive rate.
+      _isPrepaid = broadcast.ratePerMinute <= 0;
       _ratePerMinute = broadcast.ratePerMinute > 0
           ? broadcast.ratePerMinute
           : _ratePerMinute;
@@ -339,10 +447,22 @@ class CallBloc extends Bloc<CallEvent, CallState> {
           broadcast.freeMinutes > 0 ? broadcast.freeMinutes : _freeMinutes;
 
       // Connect to the /call socket namespace and listen for the psychologist
-      // to accept (call:accepted) or decline (call:rejected).
+      // to accept (call:accepted) or decline (call:rejected). The same
+      // subscription later carries call:force-end / call:low-balance.
       await _callSocketManager.connect();
-      _socketSub =
+      _socketSub ??=
           _callSocketManager.eventStream.listen(_handleSocketEvent);
+    } on ApiErrorModel catch (error) {
+      final insufficient = InsufficientBalanceError.tryParse(
+        statusCode: error.statusCode,
+        message: error.message,
+        details: error.details,
+      );
+      if (insufficient != null) {
+        emit(CallInsufficientBalance(insufficient));
+      } else {
+        emit(CallErrorState(error.message));
+      }
     } catch (error) {
       emit(CallErrorState(error.toString()));
     }
@@ -350,15 +470,46 @@ class CallBloc extends Bloc<CallEvent, CallState> {
 
   /// Routes incoming socket events to the appropriate internal BLoC event.
   void _handleSocketEvent(Map<String, dynamic> event) {
+    if (isClosed) return;
     final name = event['event'] as String? ?? '';
     final payload = JsonReaders.asMap(event['payload']);
-    if (name == 'call:accepted') {
-      if (!isClosed) add(_CallAccepted(payload));
-    } else if (name == 'call:rejected') {
-      if (!isClosed) {
+
+    switch (name) {
+      case 'call:accepted':
+        add(_CallAccepted(payload));
+        break;
+      case 'call:rejected':
         add(const _CallRejected('The psychologist declined the call.'));
-      }
+        break;
+      case 'call:force-end':
+        final parsed = CallForceEndEvent.fromJson(payload);
+        if (_isForThisCall(parsed.appointmentId)) {
+          if (kDebugMode) {
+            debugPrint(
+                '[CallBloc] call:force-end → reason=${parsed.reason}');
+          }
+          add(_ForceEndReceived(parsed));
+        }
+        break;
+      case 'call:low-balance':
+        final parsed = CallLowBalanceEvent.fromJson(payload);
+        if (_isForThisCall(parsed.appointmentId)) {
+          if (kDebugMode) {
+            debugPrint(
+                '[CallBloc] call:low-balance → ~${parsed.remainingMinutes} min left');
+          }
+          add(_LowBalanceReceived(parsed));
+        }
+        break;
     }
+  }
+
+  /// Force-end / low-balance are also emitted to the private user-id room, so
+  /// an empty appointmentId on either side is treated as a match.
+  bool _isForThisCall(String eventAppointmentId) {
+    final current = _appointmentId ?? '';
+    if (current.isEmpty || eventAppointmentId.isEmpty) return true;
+    return current == eventAppointmentId;
   }
 
   /// Directly joins an Agora channel from broadcast-accepted credentials.
@@ -371,11 +522,13 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     _appointmentId = event.appointmentId;
     _psychologistName = event.psychologistName;
     _psychologistAvatar = event.psychologistAvatar;
+    // Instant/broadcast calls are always pay-as-you-go (no upfront payment).
+    _isPrepaid = false;
     _ratePerMinute = event.ratePerMinute > 0 ? event.ratePerMinute : _ratePerMinute;
     _freeMinutes = event.freeMinutes > 0 ? event.freeMinutes : _freeMinutes;
-    _walletBalance = event.walletBalance;
-    _walletDepleted = false;
     _isVideoEnabled = event.enableVideo;
+    _isFinalizing = false;
+    _latestBilling = null;
 
     emit(CallConnecting(
       psychologistName: _psychologistName,
@@ -388,6 +541,12 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       if (appId.isEmpty) throw Exception('Agora App ID missing.');
       if (event.token.isEmpty) throw Exception('Agora token missing.');
       if (event.channelName.isEmpty) throw Exception('Agora channel name missing.');
+
+      // The /call socket may already be connected by the broadcast flow —
+      // (re)connect and subscribe so force-end / low-balance reach this bloc.
+      await _callSocketManager.connect();
+      _socketSub ??=
+          _callSocketManager.eventStream.listen(_handleSocketEvent);
 
       await _agoraCallEngine.initialize(
         appId: appId,
@@ -423,9 +582,6 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   Future<void> _onCallAccepted(
       _CallAccepted event, Emitter<CallState> emit) async {
     try {
-      await _socketSub?.cancel();
-      _socketSub = null;
-
       final payload = event.payload;
 
       // Support nested agora sub-map or flat payload (same aliases as backend).
@@ -532,6 +688,13 @@ class CallBloc extends Bloc<CallEvent, CallState> {
         ? current.psychologistAvatar
         : _psychologistAvatar;
 
+    // Join the per-appointment call room so room-scoped billing events
+    // (call:force-end / call:low-balance) are delivered immediately.
+    final appointmentId = _appointmentId ?? '';
+    if (appointmentId.isNotEmpty) {
+      _callSocketManager.joinCallRoom(appointmentId);
+    }
+
     _elapsedSeconds = 0;
     emit(CallActive(
       psychologistName: psychologistName,
@@ -539,6 +702,8 @@ class CallBloc extends Bloc<CallEvent, CallState> {
       elapsedSeconds: 0,
       isVideoOff: !_isVideoEnabled,
       channelName: _channelName,
+      freeMinutes: _freeMinutes,
+      isPrepaid: _isPrepaid,
     ));
     _startTimer();
     _startHeartbeat();
@@ -552,39 +717,155 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     });
   }
 
+  // ── Heartbeat loop — single owner of the in-call billing lifecycle ────────
+
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
-      final appointmentId = _appointmentId;
-      if (appointmentId == null) return;
-
-      try {
-        await _callRepository.sendHeartbeat(
-          appointmentId,
-          CallHeartbeatRequest(durationSeconds: _elapsedSeconds),
-        );
-      } catch (_) {
-        // Heartbeat failures are non-blocking for active UI.
-      }
+    _sendHeartbeat(); // first beat immediately on join
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      _sendHeartbeat();
     });
+  }
+
+  Future<void> _sendHeartbeat() async {
+    final appointmentId = _appointmentId;
+    if (appointmentId == null || _isFinalizing) return;
+
+    try {
+      final response = await _callRepository.sendHeartbeat(
+        appointmentId,
+        CallHeartbeatRequest(durationSeconds: _elapsedSeconds),
+      );
+      if (kDebugMode) {
+        debugPrint(
+            '[CallBloc] heartbeat → ended=${response.callEnded} ${response.billing ?? '(no billing yet)'}');
+      }
+      if (!isClosed) add(_HeartbeatArrived(response));
+    } catch (error) {
+      // Heartbeat failures are non-blocking for the active UI; the next tick
+      // retries, and the server-side sweeper protects against zombie calls.
+      if (kDebugMode) debugPrint('[CallBloc] heartbeat failed: $error');
+    }
+  }
+
+  Future<void> _onHeartbeatArrived(
+    _HeartbeatArrived event,
+    Emitter<CallState> emit,
+  ) async {
+    final response = event.response;
+
+    if (response.callEnded) {
+      await _finalizeServerEndedCall(
+        emit,
+        reason: response.endReason ?? 'wallet_exhausted',
+        message: response.message,
+        totalSeconds: _elapsedSeconds,
+        totalCharge: response.billing?.chargedSoFar ??
+            _latestBilling?.chargedSoFar ??
+            _estimatedCharge(_elapsedSeconds),
+      );
+      return;
+    }
+
+    final billing = response.billing;
+    if (billing == null) return;
+    _latestBilling = billing;
+
+    final current = state;
+    if (current is! CallActive) return;
+
+    emit(current.copyWith(
+      billing: billing,
+      chargeAmount: billing.chargedSoFar,
+      isFreePhase: billing.freeSecondsLeft > 0,
+      // Show the banner when the server flags low balance; clear it once a
+      // mid-call recharge brings the balance back up.
+      showLowBalanceBanner: billing.lowBalance,
+      lowBalanceMessage: billing.lowBalance ? current.lowBalanceMessage : null,
+    ));
+  }
+
+  Future<void> _onForceEndReceived(
+    _ForceEndReceived event,
+    Emitter<CallState> emit,
+  ) async {
+    final payload = event.payload;
+    await _finalizeServerEndedCall(
+      emit,
+      reason: payload.reason,
+      message: payload.message,
+      totalSeconds:
+          payload.totalSeconds > 0 ? payload.totalSeconds : _elapsedSeconds,
+      totalCharge: payload.totalCharge > 0
+          ? payload.totalCharge
+          : _latestBilling?.chargedSoFar ?? _estimatedCharge(_elapsedSeconds),
+    );
+  }
+
+  void _onLowBalanceReceived(
+    _LowBalanceReceived event,
+    Emitter<CallState> emit,
+  ) {
+    final current = state;
+    if (current is! CallActive) return;
+    // Idempotent: re-emitting the same banner state is a no-op for the UI.
+    emit(current.copyWith(
+      showLowBalanceBanner: true,
+      lowBalanceMessage:
+          event.payload.message.isNotEmpty ? event.payload.message : null,
+    ));
+  }
+
+  /// Shared teardown for server-side call termination (heartbeat `callEnded`
+  /// or `call:force-end` socket event — whichever arrives first wins; the
+  /// second is a no-op).
+  Future<void> _finalizeServerEndedCall(
+    Emitter<CallState> emit, {
+    required String reason,
+    required String message,
+    required int totalSeconds,
+    required double totalCharge,
+  }) async {
+    if (_isFinalizing) return;
+    _isFinalizing = true;
+
+    _timer?.cancel();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+
+    await _agoraCallEngine.leaveChannel();
+
+    // No POST /calls/end here — the server already settled and ended the call.
+    if (reason == 'wallet_exhausted') {
+      emit(WalletExhausted(
+        totalSeconds: totalSeconds,
+        totalCharge: totalCharge,
+        psychologistName: _psychologistName,
+        message: message.isNotEmpty ? message : null,
+      ));
+    } else {
+      emit(CallEnded(
+        totalSeconds: totalSeconds,
+        totalCharge: totalCharge,
+        psychologistName: _psychologistName,
+        endReason: reason,
+        message: message.isNotEmpty ? message : null,
+      ));
+    }
   }
 
   void _onTick(TimerTick event, Emitter<CallState> emit) {
     if (state is! CallActive) return;
     final current = state as CallActive;
-    final billedSecs = CurrencyUtils.billedSeconds(
-      totalSeconds: event.elapsedSeconds,
-      freeMinutes: _freeMinutes,
-    );
-    final charge = billedSecs > 0 ? (_ratePerMinute / 60.0) * billedSecs : 0.0;
-    final isFreePhase = event.elapsedSeconds < (_freeMinutes * 60);
 
-    // Auto-end call when wallet balance is fully consumed
-    if (_walletBalance > 0 && !isFreePhase && charge >= _walletBalance && !_walletDepleted) {
-      _walletDepleted = true;
-      if (!isClosed) add(const EndCall());
-      return;
-    }
+    // The heartbeat snapshot is authoritative; the local estimate only fills
+    // the gap between beats.
+    final billing = current.billing;
+    final isFreePhase = billing != null
+        ? billing.freeSecondsLeft > 0
+        : event.elapsedSeconds < (_freeMinutes * 60);
+    final charge =
+        billing?.chargedSoFar ?? _estimatedCharge(event.elapsedSeconds);
 
     emit(current.copyWith(
       elapsedSeconds: event.elapsedSeconds,
@@ -593,43 +874,68 @@ class CallBloc extends Bloc<CallEvent, CallState> {
     ));
   }
 
+  double _estimatedCharge(int elapsedSeconds) {
+    final billedSecs = CurrencyUtils.billedSeconds(
+      totalSeconds: elapsedSeconds,
+      freeMinutes: _freeMinutes,
+    );
+    return billedSecs > 0 ? (_ratePerMinute / 60.0) * billedSecs : 0.0;
+  }
+
   Future<void> _onEndCall(EndCall event, Emitter<CallState> emit) async {
-    // Cancel socket subscription if the user cancels before accepting.
-    await _socketSub?.cancel();
-    _socketSub = null;
-    _timer?.cancel();
-    _heartbeatTimer?.cancel();
+    if (_isFinalizing) return;
 
     final appointmentId = _appointmentId;
     final current = state;
 
-    if (current is CallActive) {
-      if (appointmentId != null) {
-        try {
-          await _callRepository.endCall(
-            appointmentId,
-            CallEndRequest(durationSeconds: current.elapsedSeconds),
-          );
-        } catch (_) {
-          // Backend end-call failure is tolerated; UI still exits call.
-        }
-      }
+    if (current is! CallActive) {
+      // Cancelled before connecting — just stop listening for accept events.
+      _timer?.cancel();
+      _heartbeatTimer?.cancel();
+      await _socketSub?.cancel();
+      _socketSub = null;
+      return;
+    }
 
-      await _agoraCallEngine.leaveChannel();
+    _isFinalizing = true;
+    _timer?.cancel();
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
 
-      if (_walletDepleted) {
-        emit(WalletExhausted(
-          totalSeconds: current.elapsedSeconds,
-          totalCharge: current.chargeAmount,
-          psychologistName: current.psychologistName,
-        ));
-      } else {
-        emit(CallEnded(
-          totalSeconds: current.elapsedSeconds,
-          totalCharge: current.chargeAmount,
-          psychologistName: current.psychologistName,
-        ));
+    CallEndResult? endResult;
+    if (appointmentId != null) {
+      try {
+        endResult = await _callRepository.endCall(
+          appointmentId,
+          CallEndRequest(durationSeconds: current.elapsedSeconds),
+        );
+      } catch (_) {
+        // Backend end-call failure is tolerated; UI still exits call.
       }
+    }
+
+    await _agoraCallEngine.leaveChannel();
+
+    final endReason = endResult?.endReason ?? 'user_ended';
+    final totalCharge = endResult?.totalCharge ??
+        _latestBilling?.chargedSoFar ??
+        current.chargeAmount;
+
+    if (endReason == 'wallet_exhausted') {
+      emit(WalletExhausted(
+        totalSeconds: endResult?.totalSeconds ?? current.elapsedSeconds,
+        totalCharge: totalCharge,
+        psychologistName: current.psychologistName,
+        paidFromWallet: endResult?.paidFromWallet,
+      ));
+    } else {
+      emit(CallEnded(
+        totalSeconds: endResult?.totalSeconds ?? current.elapsedSeconds,
+        totalCharge: totalCharge,
+        psychologistName: current.psychologistName,
+        endReason: endReason,
+        paidFromWallet: endResult?.paidFromWallet,
+      ));
     }
   }
 
@@ -670,10 +976,10 @@ class CallBloc extends Bloc<CallEvent, CallState> {
   Future<void> close() async {
     _timer?.cancel();
     _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
     await _socketSub?.cancel();
     _callSocketManager.disconnect();
     await _agoraCallEngine.dispose();
     return super.close();
   }
 }
-

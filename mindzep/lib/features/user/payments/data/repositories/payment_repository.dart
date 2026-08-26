@@ -16,11 +16,22 @@ class PaymentRepository {
     );
   }
 
-  Future<void> verifyPayment(VerifyPaymentRequest request) {
-    return _dioClient.post<void>(
+  /// Pays for an appointment directly from the user's wallet balance.
+  /// The backend deducts [request.amount], marks the appointment paid, and
+  /// returns a status — no Cashfree gateway is involved.
+  Future<PaymentVerifyResult> payFromWallet(WalletPaymentRequest request) {
+    return _dioClient.post<PaymentVerifyResult>(
+      ApiEndpoints.paymentsWalletPay,
+      data: request.toJson(),
+      parser: (json) => PaymentVerifyResult.fromJson(JsonReaders.asMap(json)),
+    );
+  }
+
+  Future<PaymentVerifyResult> verifyPayment(VerifyPaymentRequest request) {
+    return _dioClient.post<PaymentVerifyResult>(
       ApiEndpoints.paymentsVerify,
       data: request.toJson(),
-      parser: (_) => null,
+      parser: (json) => PaymentVerifyResult.fromJson(JsonReaders.asMap(json)),
     );
   }
 

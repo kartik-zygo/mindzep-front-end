@@ -28,9 +28,11 @@ class NotificationsSocketManager {
         return;
       }
 
-      final isNotificationEvent = map.containsKey('notificationId') ||
-          map.containsKey('message') ||
-          event.toString().contains('notification');
+      final isNotificationEvent =
+          (map.containsKey('notificationId') ||
+              map.containsKey('id') ||
+              map.containsKey('_id')) &&
+          map.containsKey('title');
 
       if (!isNotificationEvent) {
         return;

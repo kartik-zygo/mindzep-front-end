@@ -9,19 +9,26 @@ class AuthRepository {
   AuthRepository({
     required DioClient dioClient,
     required TokenStorage tokenStorage,
-  })  : _dioClient = dioClient,
-        _tokenStorage = tokenStorage;
+  }) : _dioClient = dioClient,
+       _tokenStorage = tokenStorage;
 
   final DioClient _dioClient;
   final TokenStorage _tokenStorage;
 
-  Future<void> register(RegisterRequest request) {
-    return _dioClient.post<void>(
+  Future<void> register(RegisterRequest request) async {
+    await _dioClient.post<void>(
       ApiEndpoints.register,
       data: request.toJson(),
       requiresAuth: false,
       parser: (_) => null,
     );
+
+    // Keep the selected registration role so OTP/first-session bootstrap
+    // can recover role-specific routing even if backend profile payload is sparse.
+    final normalized = _normalizeRoleNameOrNull(request.role);
+    if (normalized != null) {
+      await _tokenStorage.saveUserRole(normalized);
+    }
   }
 
   Future<AuthSession> verifyOtp(VerifyOtpRequest request) async {
@@ -56,11 +63,20 @@ class AuthRepository {
       data: {'refreshToken': token},
       requiresAuth: false,
       parser: (json) {
-        final map = JsonReaders.asMap(json);
-        final accessToken =
-            JsonReaders.readString(map, ['accessToken', 'token']);
-        final nextRefreshToken =
-            JsonReaders.readString(map, ['refreshToken'], fallback: token);
+        // The API returns { success, message, data: { accessToken, refreshToken } }.
+        // DioClient's extractData unwraps the 'data' envelope so json is already
+        // { accessToken, refreshToken }. Guard against both shapes just in case.
+        final raw = JsonReaders.asMap(json);
+        final map = raw.containsKey('accessToken')
+            ? raw
+            : JsonReaders.asMap(raw['data']);
+        final accessToken = JsonReaders.readString(map, [
+          'accessToken',
+          'token',
+        ]);
+        final nextRefreshToken = JsonReaders.readString(map, [
+          'refreshToken',
+        ], fallback: token);
 
         return AuthSession(
           accessToken: accessToken,
@@ -147,14 +163,31 @@ class AuthRepository {
     );
   }
 
-  Future<UserEntity> getCurrentUser() {
-    return _dioClient.get<UserEntity>(
+  Future<UserEntity> getCurrentUser() async {
+    final map = await _dioClient.get<Map<String, dynamic>>(
       ApiEndpoints.me,
-      parser: (json) {
-        final map = JsonReaders.asMap(json);
-        return AuthUserModel.fromJson(map).toEntity();
-      },
+      parser: (json) => JsonReaders.asMap(json),
     );
+
+    final roleFromApi = JsonReaders.readString(map, [
+      'role',
+      'userRole',
+      'accountType',
+      'user_type',
+      'type',
+    ]).trim();
+
+    if (roleFromApi.isEmpty) {
+      final savedRole = await _tokenStorage.getUserRole();
+      final normalizedSavedRole = _normalizeRoleNameOrNull(savedRole);
+      if (normalizedSavedRole != null) {
+        map['role'] = normalizedSavedRole;
+      }
+    }
+
+    final user = AuthUserModel.fromJson(map).toEntity();
+    await _tokenStorage.saveUserRole(user.role.name);
+    return user;
   }
 
   Future<bool> hasSession() {
@@ -165,6 +198,10 @@ class AuthRepository {
     return _tokenStorage.clearSession();
   }
 
+  Future<void> syncUserRole(UserRole role) {
+    return _tokenStorage.saveUserRole(role.name);
+  }
+
   Future<void> _persistSession(AuthSession session) async {
     await _tokenStorage.saveTokens(
       accessToken: session.accessToken,
@@ -173,6 +210,24 @@ class AuthRepository {
 
     if (session.user != null) {
       await _tokenStorage.saveUserRole(session.user!.role.name);
+    }
+  }
+
+  String? _normalizeRoleNameOrNull(String? roleRaw) {
+    final normalized = roleRaw?.trim().toLowerCase() ?? '';
+    if (normalized.isEmpty) return null;
+
+    switch (normalized) {
+      case 'user':
+        return 'user';
+      case 'psych':
+      case 'therapist':
+      case 'psychologist':
+        return 'psychologist';
+      case 'admin':
+        return 'admin';
+      default:
+        return null;
     }
   }
 }

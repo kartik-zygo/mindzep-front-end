@@ -182,10 +182,18 @@ class BookAppointmentRequest {
   final String psychologistId;
   final String sessionType;
 
+  /// Optional sub-range within the availability window. When provided, only
+  /// `[startTime, startTime + durationMinutes]` is booked and the leftover
+  /// time in the window stays available. Omit both to book the full window.
+  final DateTime? startTime;
+  final int? durationMinutes;
+
   const BookAppointmentRequest({
     required this.slotId,
     required this.psychologistId,
     required this.sessionType,
+    this.startTime,
+    this.durationMinutes,
   });
 
   Map<String, dynamic> toJson() {
@@ -193,6 +201,8 @@ class BookAppointmentRequest {
       'slotId': slotId,
       'psychologistId': psychologistId,
       'sessionType': sessionType,
+      if (startTime != null) 'startTime': startTime!.toUtc().toIso8601String(),
+      if (durationMinutes != null) 'durationMinutes': durationMinutes,
     };
   }
 }

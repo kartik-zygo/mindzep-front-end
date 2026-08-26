@@ -25,21 +25,46 @@ class AuthUserModel {
   });
 
   factory AuthUserModel.fromJson(Map<String, dynamic> json) {
-    final roleRaw = JsonReaders.readString(json, ['role'], fallback: 'user');
+    var roleRaw = JsonReaders.readString(json, [
+      'role',
+      'userRole',
+      'accountType',
+      'user_type',
+      'type',
+    ]).trim();
+    if (roleRaw.isEmpty) {
+      final roles = JsonReaders.readStringList(json, ['roles']);
+      if (roles.isNotEmpty) {
+        roleRaw = roles.first;
+      }
+    }
 
     return AuthUserModel(
       id: JsonReaders.readString(json, ['id', '_id', 'userId']),
       name: JsonReaders.readString(json, ['name', 'fullName']),
       email: JsonReaders.readString(json, ['email']),
       phone: JsonReaders.readString(json, ['phone', 'mobile']),
-      avatarUrl: JsonReaders.readString(json, ['avatarUrl', 'avatar', 'profilePicture'])
-              .trim()
-              .isEmpty
+      avatarUrl:
+          JsonReaders.readString(json, [
+            'avatarUrl',
+            'avatar',
+            'profilePicture',
+          ]).trim().isEmpty
           ? null
-          : JsonReaders.readString(json, ['avatarUrl', 'avatar', 'profilePicture']),
+          : JsonReaders.readString(json, [
+              'avatarUrl',
+              'avatar',
+              'profilePicture',
+            ]),
       role: _parseRole(roleRaw),
-      isVerified: JsonReaders.readBool(json, ['isVerified', 'verified'], fallback: false),
-      isActive: JsonReaders.readBool(json, ['isActive', 'active'], fallback: true),
+      isVerified: JsonReaders.readBool(json, [
+        'isVerified',
+        'verified',
+      ], fallback: false),
+      isActive: JsonReaders.readBool(json, [
+        'isActive',
+        'active',
+      ], fallback: true),
       createdAt: JsonReaders.readDateTime(json, ['createdAt', 'created_at']),
     );
   }
@@ -59,9 +84,11 @@ class AuthUserModel {
   }
 
   static UserRole _parseRole(String role) {
-    switch (role.toLowerCase()) {
+    switch (role.trim().toLowerCase()) {
       case 'admin':
         return UserRole.admin;
+      case 'psych':
+      case 'therapist':
       case 'psychologist':
         return UserRole.psychologist;
       case 'user':
@@ -76,10 +103,15 @@ class AuthSession {
   final String refreshToken;
   final AuthUserModel? user;
 
+  /// True when `POST /auth/google` created a brand-new account. New Google
+  /// users have no phone number — route them to the complete-profile screen.
+  final bool isNewUser;
+
   const AuthSession({
     required this.accessToken,
     required this.refreshToken,
     this.user,
+    this.isNewUser = false,
   });
 
   factory AuthSession.fromJson(Map<String, dynamic> json) {
@@ -87,15 +119,17 @@ class AuthSession {
       JsonReaders.readAny(json, ['user', 'profile']),
     );
 
-    final accessToken =
-        JsonReaders.readString(json, ['accessToken', 'token']).trim();
-    final refreshToken =
-        JsonReaders.readString(json, ['refreshToken']).trim();
+    final accessToken = JsonReaders.readString(json, [
+      'accessToken',
+      'token',
+    ]).trim();
+    final refreshToken = JsonReaders.readString(json, ['refreshToken']).trim();
 
     return AuthSession(
       accessToken: accessToken,
       refreshToken: refreshToken,
       user: userMap.isEmpty ? null : AuthUserModel.fromJson(userMap),
+      isNewUser: JsonReaders.readBool(json, ['isNewUser'], fallback: false),
     );
   }
 }
@@ -141,11 +175,7 @@ class VerifyOtpRequest {
   });
 
   Map<String, dynamic> toJson() {
-    return {
-      'identifier': identifier,
-      'otp': otp,
-      'purpose': purpose,
-    };
+    return {'identifier': identifier, 'otp': otp, 'purpose': purpose};
   }
 }
 
@@ -156,10 +186,7 @@ class LoginRequest {
   const LoginRequest({required this.email, required this.password});
 
   Map<String, dynamic> toJson() {
-    return {
-      'email': email,
-      'password': password,
-    };
+    return {'email': email, 'password': password};
   }
 }
 
@@ -243,10 +270,7 @@ class ResendOtpRequest {
   const ResendOtpRequest({required this.identifier, required this.purpose});
 
   Map<String, dynamic> toJson() {
-    return {
-      'identifier': identifier,
-      'purpose': purpose,
-    };
+    return {'identifier': identifier, 'purpose': purpose};
   }
 }
 

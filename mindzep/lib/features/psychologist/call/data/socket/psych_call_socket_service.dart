@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../../../../core/socket/socket_manager.dart';
 import '../../../../../core/utils/json_readers.dart';
+import '../../../../user/call/data/models/call_models.dart';
 import '../models/incoming_call_data.dart';
 
 /// Persistent socket service for the psychologist side.
@@ -37,12 +38,26 @@ class PsychCallSocketService {
   final StreamController<Map<String, dynamic>> _cancelledController =
       StreamController<Map<String, dynamic>>.broadcast();
 
+  /// Fires when the server force-ends the active call (`call:force-end`,
+  /// e.g. the user's wallet ran out) — the psychologist app must leave the
+  /// Agora channel immediately.
+  final StreamController<CallForceEndEvent> _forceEndController =
+      StreamController<CallForceEndEvent>.broadcast();
+
+  /// Fires on `call:low-balance` — the user is about to run out of talk time.
+  final StreamController<CallLowBalanceEvent> _lowBalanceController =
+      StreamController<CallLowBalanceEvent>.broadcast();
+
   /// Fires whenever the backend sends a `call:incoming` socket event.
   Stream<IncomingCallData> get onIncomingCall => _incomingController.stream;
 
   /// Fires whenever the backend sends a `call:cancelled` socket event.
   /// The map carries at minimum `{ callId, appointmentId, reason }`.
   Stream<Map<String, dynamic>> get onCallCancelled => _cancelledController.stream;
+
+  Stream<CallForceEndEvent> get onForceEnd => _forceEndController.stream;
+
+  Stream<CallLowBalanceEvent> get onLowBalance => _lowBalanceController.stream;
 
   /// Connects to the /call namespace and waits until the socket is truly
   /// connected (auth handshake complete, room joined on the server side).
@@ -104,6 +119,38 @@ class PsychCallSocketService {
         debugPrint('[PsychCallSocket] call:cancelled parse error: $e');
       }
     });
+
+    socket.on('call:force-end', (data) {
+      debugPrint('[PsychCallSocket] call:force-end received → $data');
+      try {
+        final event = CallForceEndEvent.fromJson(JsonReaders.asMap(data));
+        if (!_forceEndController.isClosed) {
+          _forceEndController.add(event);
+        }
+      } catch (e) {
+        debugPrint('[PsychCallSocket] call:force-end parse error: $e');
+      }
+    });
+
+    socket.on('call:low-balance', (data) {
+      debugPrint('[PsychCallSocket] call:low-balance received → $data');
+      try {
+        final event = CallLowBalanceEvent.fromJson(JsonReaders.asMap(data));
+        if (!_lowBalanceController.isClosed) {
+          _lowBalanceController.add(event);
+        }
+      } catch (e) {
+        debugPrint('[PsychCallSocket] call:low-balance parse error: $e');
+      }
+    });
+  }
+
+  /// Joins the per-appointment call room so room-scoped billing events
+  /// (`call:force-end`, `call:low-balance`) are delivered.
+  void joinCallRoom(String appointmentId) {
+    if (appointmentId.isEmpty) return;
+    debugPrint('[PsychCallSocket] → call:join $appointmentId');
+    _socket?.emit('call:join', {'appointmentId': appointmentId});
   }
 
   /// Emits a rejection event to the server so the user is notified.
@@ -120,5 +167,7 @@ class PsychCallSocketService {
   void dispose() {
     _incomingController.close();
     _cancelledController.close();
+    _forceEndController.close();
+    _lowBalanceController.close();
   }
 }
