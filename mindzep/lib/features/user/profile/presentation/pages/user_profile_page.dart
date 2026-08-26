@@ -1,26 +1,88 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../../core/mock/mock_data.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../../../injection/injection_container.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_avatar.dart';
+import '../../../appointments/data/repositories/appointment_repository.dart';
+import '../../../data/repositories/user_repository.dart';
+import '../../../data/models/user_models.dart';
 import '../../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../../auth/presentation/bloc/auth_event.dart';
 
-class UserProfilePage extends StatelessWidget {
+class UserProfilePage extends StatefulWidget {
   const UserProfilePage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final user = MockData.currentUser;
-    final totalSessions = MockData.appointments.length;
-    final upcomingSessions = MockData.appointments.where((a) => a.status.name == 'upcoming').length;
-    final completedSessions = MockData.appointments.where((a) => a.status.name == 'completed').length;
+  State<UserProfilePage> createState() => _UserProfilePageState();
+}
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
-      body: CustomScrollView(
-        slivers: [
+class _UserProfilePageState extends State<UserProfilePage> {
+  late final UserRepository _userRepository;
+  late final AppointmentRepository _appointmentRepository;
+  late final Future<_ProfileData> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _userRepository = sl<UserRepository>();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _profileFuture = _loadProfileData();
+  }
+
+  Future<_ProfileData> _loadProfileData() async {
+    final profile = await _userRepository.getMe();
+    final wallet = await _userRepository.getMyWallet();
+    final appointments = await _appointmentRepository.listAppointments(
+      page: 1,
+      limit: 100,
+    );
+
+    final entities = appointments.items.map((item) => item.toEntity()).toList();
+    final upcomingCount = entities
+        .where((appointment) => appointment.status.name == 'upcoming')
+        .length;
+    final completedCount = entities
+        .where((appointment) => appointment.status.name == 'completed')
+        .length;
+
+    return _ProfileData(
+      name: profile.name,
+      email: profile.email,
+      phone: profile.phone,
+      avatarUrl: profile.avatarUrl,
+      totalSessions: entities.length,
+      upcomingSessions: upcomingCount,
+      completedSessions: completedCount,
+      walletBalance: wallet.balance,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authUser = context.read<AuthBloc>().currentUser;
+
+    return FutureBuilder<_ProfileData>(
+      future: _profileFuture,
+      builder: (context, snapshot) {
+        final profile = snapshot.data ??
+            _ProfileData(
+              name: authUser?.name ?? 'User',
+              email: authUser?.email ?? '-',
+              phone: authUser?.phone,
+              avatarUrl: authUser?.avatarUrl,
+              totalSessions: 0,
+              upcomingSessions: 0,
+              completedSessions: 0,
+              walletBalance: 0,
+            );
+        final safeName = profile.name.trim().isEmpty ? 'User' : profile.name.trim();
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFF2F2F7),
+          body: CustomScrollView(
+            slivers: [
           // ── Gradient Header ───────────────────────────────────────────
           SliverToBoxAdapter(
             child: Container(
@@ -48,7 +110,7 @@ class UserProfilePage extends StatelessWidget {
                       const Expanded(child: Text('My Profile', textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold))),
                       GestureDetector(
-                        onTap: () => _showEditProfile(context, user),
+                        onTap: () => _showEditProfile(context, profile),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                           decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(20)),
@@ -63,10 +125,10 @@ class UserProfilePage extends StatelessWidget {
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white.withOpacity(0.4), width: 3),
                         ),
-                        child: AppAvatar(imageUrl: user.avatarUrl, radius: 44, initials: _initials(user.name)),
+                        child: AppAvatar(imageUrl: profile.avatarUrl, radius: 44, initials: _initials(profile.name)),
                       ),
                       GestureDetector(
-                        onTap: () => _showEditProfile(context, user),
+                        onTap: () => _showEditProfile(context, profile),
                         child: Container(
                           width: 28, height: 28,
                           decoration: BoxDecoration(
@@ -79,12 +141,12 @@ class UserProfilePage extends StatelessWidget {
                       ),
                     ]),
                     const SizedBox(height: 12),
-                    Text(user.name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                    Text(safeName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 3),
-                    Text(user.email, style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 13)),
-                    if (user.phone != null) ...[
+                    Text(profile.email, style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 13)),
+                    if (profile.phone != null && profile.phone!.trim().isNotEmpty) ...[
                       const SizedBox(height: 2),
-                      Text(user.phone!, style: const TextStyle(color: Color(0x80FFFFFF), fontSize: 12)),
+                      Text(profile.phone!, style: const TextStyle(color: Color(0x80FFFFFF), fontSize: 12)),
                     ],
                     const SizedBox(height: 12),
                     Container(
@@ -121,11 +183,11 @@ class UserProfilePage extends StatelessWidget {
                   ),
                   child: IntrinsicHeight(
                     child: Row(children: [
-                      _StatCell(value: '$totalSessions', label: 'Total\nSessions', icon: Icons.access_time_rounded, color: const Color(0xFF5E5CE6)),
+                      _StatCell(value: '${profile.totalSessions}', label: 'Total\nSessions', icon: Icons.access_time_rounded, color: const Color(0xFF5E5CE6)),
                       _VertDivider(),
-                      _StatCell(value: '$upcomingSessions', label: 'Upcoming', icon: Icons.schedule_rounded, color: const Color(0xFFFF9500)),
+                      _StatCell(value: '${profile.upcomingSessions}', label: 'Upcoming', icon: Icons.schedule_rounded, color: const Color(0xFFFF9500)),
                       _VertDivider(),
-                      _StatCell(value: '$completedSessions', label: 'Completed', icon: Icons.check_circle_rounded, color: const Color(0xFF34C759)),
+                      _StatCell(value: '${profile.completedSessions}', label: 'Completed', icon: Icons.check_circle_rounded, color: const Color(0xFF34C759)),
                     ]),
                   ),
                 ),
@@ -146,7 +208,7 @@ class UserProfilePage extends StatelessWidget {
                   _MenuItemData(
                     icon: Icons.person_outline_rounded, label: 'Edit Profile', subtitle: 'Update name, photo & bio',
                     iconBg: const Color(0xFFEEF0FF), iconColor: const Color(0xFF5E5CE6),
-                    onTap: () => _showEditProfile(context, user),
+                    onTap: () => _showEditProfile(context, profile),
                   ),
                   _MenuItemData(
                     icon: Icons.lock_outline_rounded, label: 'Change Password', subtitle: 'Secure your account',
@@ -154,7 +216,9 @@ class UserProfilePage extends StatelessWidget {
                     onTap: () => _showChangePassword(context),
                   ),
                   _MenuItemData(
-                    icon: Icons.account_balance_wallet_rounded, label: 'My Wallet', subtitle: 'Balance: ₹415',
+                    icon: Icons.account_balance_wallet_rounded,
+                    label: 'My Wallet',
+                    subtitle: 'Balance: ₹${profile.walletBalance.toStringAsFixed(0)}',
                     iconBg: const Color(0xFFE8FFF1), iconColor: const Color(0xFF34C759),
                     onTap: () => context.go(RouteNames.userWallet),
                   ),
@@ -216,18 +280,37 @@ class UserProfilePage extends StatelessWidget {
                     ]),
                   ),
                 ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: () => _confirmDeleteAccount(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8E8E93).withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFF8E8E93).withOpacity(0.2)),
+                    ),
+                    child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(Icons.delete_forever_rounded, color: Color(0xFF8E8E93), size: 20),
+                      SizedBox(width: 8),
+                      Text('Delete Account', style: TextStyle(color: Color(0xFF8E8E93), fontSize: 16, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                ),
                 const SizedBox(height: 100),
               ]),
             ),
           ),
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 
   // ── Modals ─────────────────────────────────────────────────────────────────
 
-  static void _showEditProfile(BuildContext context, user) {
+  static void _showEditProfile(BuildContext context, _ProfileData user) {
     final nameCtrl = TextEditingController(text: user.name);
     final phoneCtrl = TextEditingController(text: user.phone ?? '');
     final bioCtrl = TextEditingController();
@@ -253,7 +336,13 @@ class UserProfilePage extends StatelessWidget {
             _ActionButton(
               label: 'Save Changes',
               gradient: const [Color(0xFF5E5CE6), Color(0xFF8B7CF6)],
-              onTap: () {
+              onTap: () async {
+                await sl<UserRepository>().updateMe(
+                  UserUpdateRequest(
+                    name: nameCtrl.text.trim(),
+                    phone: phoneCtrl.text.trim(),
+                  ),
+                );
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                   content: Text('Profile updated!'), backgroundColor: Color(0xFF34C759),
@@ -275,8 +364,8 @@ class UserProfilePage extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(sheetContext).viewInsets.bottom),
         child: Container(
           decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
@@ -296,8 +385,9 @@ class UserProfilePage extends StatelessWidget {
               label: 'Update Password',
               gradient: const [Color(0xFFFF6B6B), Color(0xFFFF8E53)],
               onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                final messenger = ScaffoldMessenger.of(sheetContext);
+                Navigator.pop(sheetContext);
+                messenger.showSnackBar(const SnackBar(
                   content: Text('Password updated!'), backgroundColor: Color(0xFF34C759),
                   behavior: SnackBarBehavior.floating,
                 ));
@@ -382,11 +472,85 @@ class UserProfilePage extends StatelessWidget {
     );
   }
 
-  static String _initials(String name) {
-    final parts = name.trim().split(' ');
-    if (parts.length >= 2) return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
-    return name[0].toUpperCase();
+  static void _confirmDeleteAccount(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Delete Account?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text(
+          'Your account will be deactivated. This action cannot be undone. '
+          'All your data will be scheduled for removal.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFF8E8E93))),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              try {
+                await sl<UserRepository>().deleteAccount();
+                if (context.mounted) {
+                  Future.microtask(
+                    () => context.read<AuthBloc>().add(const LogoutRequested()),
+                  );
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Failed to delete account. Please try again.'),
+                    backgroundColor: Color(0xFFFF3B30),
+                    behavior: SnackBarBehavior.floating,
+                  ));
+                }
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Color(0xFFFF3B30), fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
   }
+
+  static String _initials(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'U';
+
+    final parts = trimmed
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+
+    if (parts.isEmpty) return 'U';
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return parts.first[0].toUpperCase();
+  }
+}
+
+class _ProfileData {
+  final String name;
+  final String email;
+  final String? phone;
+  final String? avatarUrl;
+  final int totalSessions;
+  final int upcomingSessions;
+  final int completedSessions;
+  final double walletBalance;
+
+  const _ProfileData({
+    required this.name,
+    required this.email,
+    required this.phone,
+    required this.avatarUrl,
+    required this.totalSessions,
+    required this.upcomingSessions,
+    required this.completedSessions,
+    required this.walletBalance,
+  });
 }
 
 // ── Privacy content ────────────────────────────────────────────────────────────
@@ -657,10 +821,13 @@ class _HelpSheet extends StatelessWidget {
               const SizedBox(height: 4),
               const Text('Our team is available Mon–Sat, 9AM–9PM IST.', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
               const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                decoration: BoxDecoration(color: const Color(0xFF5E5CE6), borderRadius: BorderRadius.circular(10)),
-                child: const Text('📧 support@mindzep.com', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+              GestureDetector(
+                onTap: () => launchUrl(Uri(scheme: 'mailto', path: 'support@mindzep.com')),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                  decoration: BoxDecoration(color: const Color(0xFF5E5CE6), borderRadius: BorderRadius.circular(10)),
+                  child: const Text('📧 support@mindzep.com', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
               ),
             ]),
           ),

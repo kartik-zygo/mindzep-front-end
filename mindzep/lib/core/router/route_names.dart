@@ -6,7 +6,9 @@ class RouteNames {
   static const onboarding = '/onboarding';
   static const login = '/login';
   static const register = '/register';
+  static const verifyOtp = '/verify-otp';
   static const forgotPassword = '/forgot-password';
+  static const completeProfile = '/complete-profile';
 
   // User shell
   static const userHome = '/user/home';
@@ -37,11 +39,21 @@ class RouteNames {
 
   // Psychologist — outside shell
   static const psychBlogDetail = '/psych/blog-detail';
+  static const psychNotifications = '/psych/notifications';
+  static const psychIncomingCall = '/psych/incoming-call';
+  static const psychActiveCall = '/psych/active-call';
+
+  // User — settings & help
+  static const userSettings = '/user/settings';
+  static const helpSupport = '/help-support';
+  static const faqs = '/faqs';
 
   // Admin shell
   static const adminDashboard = '/admin/dashboard';
   static const adminPsychologists = '/admin/psychologists';
   static const adminUsers = '/admin/users';
   static const adminAppointments = '/admin/appointments';
+  static const adminBlogs = '/admin/blogs';
+  static const adminNotifications = '/admin/notifications';
   static const adminSettings = '/admin/settings';
 }

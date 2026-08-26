@@ -24,14 +24,17 @@ class AppStrings {
   static const String newPassword = 'New Password';
 
   // Onboarding
-  static const String onboardingTitle1 = 'Find Your Therapist';
+  static const String onboardingTitle1 = "You're Not Alone";
   static const String onboardingBody1 =
-      'Browse licensed psychologists by specialization, experience, and availability.';
-  static const String onboardingTitle2 = 'Book in Seconds';
+      "Whatever you're going through, it's okay. MindZep connects you with licensed psychologists who listen without judgment, whenever you need support.";
+  static const String onboardingTitle2 = 'Find Your Therapist';
   static const String onboardingBody2 =
-      'Pick a convenient slot and confirm your appointment instantly.';
-  static const String onboardingTitle3 = 'Start Healing';
+      'Browse licensed psychologists by specialization, experience, and availability.';
+  static const String onboardingTitle3 = 'Book in Seconds';
   static const String onboardingBody3 =
+      'Pick a convenient slot and confirm your appointment instantly.';
+  static const String onboardingTitle4 = 'Start Healing';
+  static const String onboardingBody4 =
       'Connect via video, audio, or chat from the comfort of your home.';
   static const String getStarted = 'Get Started';
   static const String skip = 'Skip';

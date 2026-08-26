@@ -58,6 +58,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               message: 'Password reset successfully!',
               type: SnackbarType.success);
           context.go(RouteNames.login);
+        } else if (state is AuthOperationSuccess) {
+          AppSnackbar.show(context,
+              message: state.message, type: SnackbarType.success);
         } else if (state is AuthError) {
           AppSnackbar.show(context,
               message: state.message, type: SnackbarType.error);
@@ -188,14 +191,24 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           onPressed: () {
             final otp =
                 _otpControllers.map((c) => c.text).join();
-            context.read<AuthBloc>().add(OtpVerified(otp: otp));
+            context.read<AuthBloc>().add(
+                  OtpVerified(
+                    identifier: _sentEmail,
+                    otp: otp,
+                    purpose: 'password_reset',
+                  ),
+                );
           },
         ),
         const SizedBox(height: AppDimensions.paddingM),
         Center(
           child: TextButton(
             onPressed: () => context.read<AuthBloc>().add(
-                ForgotPasswordRequested(email: _sentEmail)),
+                  ResendOtpRequested(
+                    identifier: _sentEmail,
+                    purpose: 'password_reset',
+                  ),
+                ),
             child: Text('Resend OTP',
                 style: AppTextStyles.subheadline
                     .copyWith(color: AppColors.primary)),
@@ -245,10 +258,15 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             isLoading: state is AuthLoading,
             onPressed: () {
               if (_pwFormKey.currentState!.validate()) {
+                final otp = _otpControllers.map((c) => c.text).join();
                 context
                     .read<AuthBloc>()
                     .add(PasswordResetRequested(
-                        newPassword: _newPwCtrl.text));
+                      identifier: _sentEmail,
+                      otp: otp,
+                      newPassword: _newPwCtrl.text,
+                      confirmPassword: _confirmPwCtrl.text,
+                    ));
               }
             },
           ),

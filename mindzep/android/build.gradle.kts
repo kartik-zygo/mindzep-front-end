@@ -1,3 +1,5 @@
+import com.android.build.api.dsl.LibraryExtension
+
 allprojects {
     repositories {
         google()
@@ -14,6 +16,17 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+}
+
+subprojects {
+    plugins.withId("com.android.library") {
+        extensions.configure<LibraryExtension> {
+            if (namespace == null) {
+                val sanitized = project.name.replace('-', '_')
+                namespace = "com.mindzep.autons.$sanitized"
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

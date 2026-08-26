@@ -1,7 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart' show RangeValues;
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/widgets/app_avatar.dart';
 
 abstract class PsychologistListEvent extends Equatable {
   const PsychologistListEvent();

@@ -13,6 +13,8 @@ class PostCallSummaryScreen extends StatelessWidget {
 
   const PostCallSummaryScreen({super.key, required this.callEnded});
 
+  bool get _walletExhausted => callEnded.endReason == 'wallet_exhausted';
+
   @override
   Widget build(BuildContext context) {
     final mins = callEnded.totalSeconds ~/ 60;
@@ -32,12 +34,17 @@ class PostCallSummaryScreen extends StatelessWidget {
                 child: Container(
                   width: 100,
                   height: 100,
-                  decoration: const BoxDecoration(
-                    color: AppColors.primary,
+                  decoration: BoxDecoration(
+                    color:
+                        _walletExhausted ? AppColors.error : AppColors.primary,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.call_rounded,
-                      color: Colors.white, size: 48),
+                  child: Icon(
+                      _walletExhausted
+                          ? Icons.account_balance_wallet_rounded
+                          : Icons.call_rounded,
+                      color: Colors.white,
+                      size: 48),
                 ),
               ),
               const SizedBox(height: AppDimensions.paddingXL),
@@ -50,7 +57,9 @@ class PostCallSummaryScreen extends StatelessWidget {
                   style: AppTextStyles.body
                       .copyWith(color: AppColors.textSecondary),
                   textAlign: TextAlign.center),
-              const SizedBox(height: AppDimensions.paddingXL),
+              const SizedBox(height: AppDimensions.paddingM),
+              _buildEndReasonNote(),
+              const SizedBox(height: AppDimensions.paddingM),
               // Summary card
               Container(
                 padding: const EdgeInsets.all(AppDimensions.paddingL),
@@ -64,8 +73,7 @@ class PostCallSummaryScreen extends StatelessWidget {
                     _SummaryRow(
                       icon: Icons.timer_rounded,
                       label: 'Duration',
-                      value:
-                          '${mins}m ${secs}s',
+                      value: '${mins}m ${secs}s',
                     ),
                     const Divider(height: 24),
                     _SummaryRow(
@@ -78,64 +86,93 @@ class PostCallSummaryScreen extends StatelessWidget {
                           ? AppColors.success
                           : AppColors.primary,
                     ),
-                    if (callEnded.totalSeconds < 120) ...[
+                    if (callEnded.paidFromWallet != null) ...[
                       const Divider(height: 24),
                       _SummaryRow(
-                        icon: Icons.check_circle_rounded,
-                        label: 'Billing',
-                        value: 'Free (< 2 min)',
-                        valueColor: AppColors.success,
+                        icon: Icons.account_balance_wallet_rounded,
+                        label: 'Paid from Wallet',
+                        value: CurrencyUtils.formatRupees(
+                            callEnded.paidFromWallet!),
+                        valueColor: AppColors.textPrimary,
                       ),
                     ],
                   ],
                 ),
               ),
-              const SizedBox(height: AppDimensions.paddingL),
-              // Rating prompt
-              Container(
-                padding: const EdgeInsets.all(AppDimensions.paddingM),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFB300).withOpacity(0.08),
-                  borderRadius:
-                      BorderRadius.circular(AppDimensions.radiusM),
-                ),
-                child: Column(
-                  children: [
-                    Text('Rate your experience',
-                        style: AppTextStyles.headline
-                            .copyWith(color: AppColors.textPrimary)),
-                    const SizedBox(height: AppDimensions.paddingS),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: List.generate(
-                        5,
-                        (i) => GestureDetector(
-                          onTap: () {},
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4),
-                            child: Icon(Icons.star_outline_rounded,
-                                size: 36, color: Color(0xFFFFB300)),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
               const Spacer(),
-              AppButton(
-                label: 'Back to Home',
-                onPressed: () => context.go(RouteNames.userHome),
-              ),
-              const SizedBox(height: AppDimensions.paddingM),
-              AppButton(
-                label: 'Book Another Session',
-                style: AppButtonStyle.outlined,
-                onPressed: () => context.go(RouteNames.userHome),
-              ),
+              if (_walletExhausted) ...[
+                AppButton(
+                  label: 'Recharge Wallet',
+                  onPressed: () => context.go(RouteNames.userWallet),
+                ),
+                const SizedBox(height: AppDimensions.paddingM),
+                AppButton(
+                  label: 'Back to Home',
+                  style: AppButtonStyle.outlined,
+                  onPressed: () => context.go(RouteNames.userHome),
+                ),
+              ] else ...[
+                AppButton(
+                  label: 'Back to Home',
+                  onPressed: () => context.go(RouteNames.userHome),
+                ),
+                const SizedBox(height: AppDimensions.paddingM),
+                AppButton(
+                  label: 'Book Another Session',
+                  style: AppButtonStyle.outlined,
+                  onPressed: () => context.go(RouteNames.userHome),
+                ),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Explains why the call ended, driven by `endReason` from the backend.
+  Widget _buildEndReasonNote() {
+    final String text;
+    final Color color;
+    final IconData icon;
+
+    switch (callEnded.endReason) {
+      case 'wallet_exhausted':
+        text = callEnded.message ??
+            'Your wallet balance ran out, so the call was ended automatically. '
+                'Recharge to continue talking.';
+        color = AppColors.error;
+        icon = Icons.warning_amber_rounded;
+        break;
+      case 'heartbeat_timeout':
+        text = 'The call ended because the connection was lost.';
+        color = AppColors.warning;
+        icon = Icons.wifi_off_rounded;
+        break;
+      default:
+        text = callEnded.message ?? 'The call ended normally.';
+        color = AppColors.success;
+        icon = Icons.check_circle_outline_rounded;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.paddingM),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: AppDimensions.paddingS),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTextStyles.caption1.copyWith(color: color),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -173,4 +210,3 @@ class _SummaryRow extends StatelessWidget {
     );
   }
 }
-

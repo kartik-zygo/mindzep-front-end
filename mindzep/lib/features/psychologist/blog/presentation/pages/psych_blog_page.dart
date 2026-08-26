@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../../core/constants/app_colors.dart';
-import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../../../../core/network/api_error_model.dart';
+import '../../../../user/blog/data/models/blog_models.dart';
+import '../../../../user/blog/data/repositories/blog_repository.dart';
+import '../../../shared/psych_ui.dart';
 
 class PsychBlogPage extends StatefulWidget {
   const PsychBlogPage({super.key});
@@ -15,12 +17,37 @@ class PsychBlogPage extends StatefulWidget {
 }
 
 class _PsychBlogPageState extends State<PsychBlogPage> {
+  late final BlogRepository _blogRepository;
+
   bool _showForm = false;
+  bool _loading = true;
+  bool _submitting = false;
+  String? _errorMessage;
+  List<BlogEntity> _blogs = const <BlogEntity>[];
+
   final _titleCtrl = TextEditingController();
   final _contentCtrl = TextEditingController();
-  String _selectedCategory = 'Mindfulness';
+  String _selectedCategory = 'mindfulness';
 
-  static const _categories = ['Mindfulness', 'Anxiety', 'Depression', 'Relationships', 'Burnout', 'Sleep'];
+  // Backend DB enum values — mental_health & self_care omitted because the
+  // PostgreSQL enum rejects them despite Joi allowing them (backend mismatch).
+  static const _categories = [
+    'anxiety', 'depression', 'relationships',
+    'mindfulness', 'trauma', 'addiction', 'parenting', 'career',
+  ];
+
+  static String _categoryLabel(String value) => value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+      .join(' ');
+
+  @override
+  void initState() {
+    super.initState();
+    _blogRepository = sl<BlogRepository>();
+    _loadBlogs();
+  }
 
   @override
   void dispose() {
@@ -29,231 +56,305 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
     super.dispose();
   }
 
+  Future<void> _loadBlogs() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final response = await _blogRepository.listMyBlogs(page: 1, limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _blogs = response.map((item) => item.toEntity()).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      });
+    } catch (e) {
+      debugPrint('[MindZep] PsychBlog load error: $e');
+      if (!mounted) return;
+      setState(() => _errorMessage = 'Unable to load blogs right now.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _createBlog({required bool submitForReview}) async {
+    final title = _titleCtrl.text.trim();
+    final body = _contentCtrl.text.trim();
+
+    if (title.isEmpty || body.isEmpty) {
+      AppSnackbar.show(context,
+          message: 'Please enter title and content.',
+          type: SnackbarType.error);
+      return;
+    }
+    if (body.length < 100) {
+      AppSnackbar.show(context,
+          message:
+              'Content must be at least 100 characters (currently ${body.length}).',
+          type: SnackbarType.error);
+      return;
+    }
+
+    setState(() => _submitting = true);
+
+    try {
+      final created = await _blogRepository.createBlog(
+        CreateBlogRequest(title: title, body: body, category: _selectedCategory),
+      );
+      if (submitForReview) {
+        await _blogRepository.submitBlog(created.id);
+      }
+
+      if (!mounted) return;
+      AppSnackbar.show(context,
+          message: submitForReview ? 'Submitted for review' : 'Saved as draft',
+          type: SnackbarType.success);
+      setState(() {
+        _showForm = false;
+        _titleCtrl.clear();
+        _contentCtrl.clear();
+      });
+      await _loadBlogs();
+    } catch (e) {
+      if (!mounted) return;
+      String errorMsg = 'Unable to save blog right now.';
+      if (e is ApiErrorModel) {
+        final errors = e.details?['errors'];
+        if (errors is List && errors.isNotEmpty) {
+          errorMsg = errors.map((err) {
+            final field = err['field']?.toString() ?? '';
+            final msg = err['message']?.toString() ?? '';
+            return field.isNotEmpty ? '$field: $msg' : msg;
+          }).join('\n');
+        } else {
+          errorMsg = e.message;
+        }
+      }
+      AppSnackbar.show(context, message: errorMsg, type: SnackbarType.error);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final blogs = MockData.blogs.where((b) => b.psychologistId == 'p001').toList();
-    final published = blogs.where((b) => b.status == BlogStatus.published).length;
-    final totalViews = blogs.fold<int>(0, (sum, b) => sum + (b.viewCount ?? 0));
+    final blogs = _blogs;
+    final published =
+        blogs.where((b) => b.status == BlogStatus.published).length;
+    final totalViews = blogs.fold<int>(0, (sum, b) => sum + b.viewCount);
+    final totalComments =
+        blogs.fold<int>(0, (sum, b) => sum + b.commentCount);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF2F2F7),
+    return PsychScaffold(
       body: Column(
         children: [
-          // ── Teal Gradient Header ──────────────────────────────────
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(28),
-                bottomRight: Radius.circular(28),
-              ),
-            ),
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          PsychGradientHeader(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'My Blog',
-                            style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                          ),
+                    const Expanded(
+                      child: Text(
+                        'My Blog',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 23,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
                         ),
-                        GestureDetector(
-                          onTap: () => setState(() => _showForm = !_showForm),
-                          child: Container(
-                            width: 40, height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              _showForm ? Icons.close_rounded : Icons.add_rounded,
-                              color: Colors.white, size: 22,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    // Stats chips
-                    Row(
-                      children: [
-                        _BlogStat(label: 'Articles', value: '$published'),
-                        const SizedBox(width: 8),
-                        _BlogStat(label: 'Total Views', value: totalViews > 1000 ? '${(totalViews / 1000).toStringAsFixed(1)}K' : '$totalViews'),
-                        const SizedBox(width: 8),
-                        _BlogStat(label: 'Total Likes', value: '${published * 18}'),
-                      ],
+                    PsychGlassIconButton(
+                      icon: _showForm ? Icons.close_rounded : Icons.add_rounded,
+                      size: 42,
+                      onTap: () => setState(() => _showForm = !_showForm),
                     ),
                   ],
                 ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    PsychGlassStat(value: '$published', label: 'Published'),
+                    const SizedBox(width: 10),
+                    PsychGlassStat(
+                      value: totalViews > 1000
+                          ? '${(totalViews / 1000).toStringAsFixed(1)}K'
+                          : '$totalViews',
+                      label: 'Total Views',
+                    ),
+                    const SizedBox(width: 10),
+                    PsychGlassStat(value: '$totalComments', label: 'Comments'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (_showForm) _buildForm(),
+          Expanded(
+            child: _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: PsychPalette.teal))
+                : _errorMessage != null
+                    ? _ErrorView(message: _errorMessage!, onRetry: _loadBlogs)
+                    : blogs.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: const [
+                              SizedBox(height: 50),
+                              PsychEmptyState(
+                                icon: Icons.article_outlined,
+                                title: 'No articles yet',
+                                subtitle:
+                                    'Tap + to write and share your first article.',
+                              ),
+                            ],
+                          )
+                        : RefreshIndicator(
+                            color: PsychPalette.teal,
+                            onRefresh: _loadBlogs,
+                            child: ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: blogs.length,
+                              itemBuilder: (ctx, i) => PsychFadeIn(
+                                delayMs: (i * 40).clamp(0, 240),
+                                child: _BlogCard(
+                                  blog: blogs[i],
+                                  onTap: () async {
+                                    final changed = await ctx.push(
+                                        RouteNames.psychBlogDetail,
+                                        extra: blogs[i]);
+                                    if (changed == true && mounted) {
+                                      _loadBlogs();
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildForm() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Write New Article',
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: PsychPalette.ink)),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+                color: PsychPalette.scaffold,
+                borderRadius: BorderRadius.circular(14)),
+            child: TextField(
+              controller: _titleCtrl,
+              style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: PsychPalette.ink),
+              decoration: const InputDecoration(
+                hintText: 'Article title...',
+                hintStyle: TextStyle(color: Color(0xFFB6BFC5)),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
               ),
             ),
           ),
-
-          // ── Create Form ────────────────────────────────────────────
-          if (_showForm)
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Write New Article',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _categories.map((cat) {
+              final isSel = cat == _selectedCategory;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedCategory = cat),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+                  decoration: BoxDecoration(
+                    gradient: isSel ? PsychPalette.brandGradient : null,
+                    color: isSel ? null : PsychPalette.scaffold,
+                    borderRadius: BorderRadius.circular(PsychRadii.pill),
                   ),
-                  const SizedBox(height: 12),
-                  // Title input
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF2F2F7),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: TextField(
-                      controller: _titleCtrl,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1C1C1E)),
-                      decoration: const InputDecoration(
-                        hintText: 'Article title...',
-                        hintStyle: TextStyle(color: Color(0xFFC7C7CC)),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
+                  child: Text(
+                    _categoryLabel(cat),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: isSel ? Colors.white : PsychPalette.inkSoft,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  // Category chips
-                  Wrap(
-                    spacing: 6, runSpacing: 6,
-                    children: _categories.map((cat) {
-                      final isSel = cat == _selectedCategory;
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedCategory = cat),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: isSel ? const Color(0xFF30B0C7) : Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6)],
-                          ),
-                          child: Text(
-                            cat,
-                            style: TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w500,
-                              color: isSel ? Colors.white : const Color(0xFF1C1C1E),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 8),
-                  // Content input
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF2F2F7),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: TextField(
-                      controller: _contentCtrl,
-                      maxLines: 4,
-                      style: const TextStyle(fontSize: 13, color: Color(0xFF1C1C1E)),
-                      decoration: const InputDecoration(
-                        hintText: 'Share your thoughts and insights...',
-                        hintStyle: TextStyle(color: Color(0xFFC7C7CC)),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            AppSnackbar.show(context, message: 'Saved as draft', type: SnackbarType.success);
-                            setState(() => _showForm = false);
-                            _titleCtrl.clear(); _contentCtrl.clear();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF2F2F7),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Text('Save Draft', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF30B0C7))),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            AppSnackbar.show(context, message: 'Submitted for review', type: SnackbarType.success);
-                            setState(() => _showForm = false);
-                            _titleCtrl.clear(); _contentCtrl.clear();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(colors: [Color(0xFF30B0C7), Color(0xFF34C7A3)]),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Text('Publish', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white)),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+                color: PsychPalette.scaffold,
+                borderRadius: BorderRadius.circular(14)),
+            child: TextField(
+              controller: _contentCtrl,
+              maxLines: 4,
+              style: const TextStyle(fontSize: 13.5, color: PsychPalette.ink),
+              decoration: const InputDecoration(
+                hintText:
+                    'Share your thoughts and insights... (min 100 characters)',
+                hintStyle: TextStyle(color: Color(0xFFB6BFC5)),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
               ),
             ),
-
-          // ── Blog List ──────────────────────────────────────────────
-          Expanded(
-            child: blogs.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 64, height: 64,
-                          decoration: const BoxDecoration(color: Color(0xFFE6F8FA), shape: BoxShape.circle),
-                          child: const Icon(Icons.article_outlined, color: Color(0xFF30B0C7), size: 30),
-                        ),
-                        const SizedBox(height: 14),
-                        const Text('No Articles Yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF3C3C3C))),
-                        const SizedBox(height: 4),
-                        const Text('Tap + to write your first article', style: TextStyle(fontSize: 12, color: Color(0xFF8E8E93))),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: blogs.length,
-                    itemBuilder: (ctx, i) => GestureDetector(
-                      onTap: () => ctx.push(RouteNames.psychBlogDetail, extra: blogs[i]),
-                      child: _BlogCard(blog: blogs[i]),
-                    ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: _submitting
+                      ? null
+                      : () => _createBlog(submitForReview: false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                        color: PsychPalette.tealMist,
+                        borderRadius: BorderRadius.circular(PsychRadii.pill)),
+                    child: const Text('Save Draft',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: PsychPalette.tealDeep)),
                   ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: PsychPrimaryButton(
+                  label: 'Submit',
+                  isLoading: _submitting,
+                  onPressed: _submitting
+                      ? null
+                      : () => _createBlog(submitForReview: true),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -261,24 +362,32 @@ class _PsychBlogPageState extends State<PsychBlogPage> {
   }
 }
 
-class _BlogStat extends StatelessWidget {
-  final String label, value;
-  const _BlogStat({required this.label, required this.value});
+class _ErrorView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorView({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(14),
-        ),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(value, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 2),
-            Text(label, style: const TextStyle(color: Color(0xAAFFFFFF), fontSize: 11)),
+            const Icon(Icons.cloud_off_rounded,
+                color: PsychPalette.inkFaint, size: 44),
+            const SizedBox(height: 12),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: PsychPalette.inkSoft)),
+            const SizedBox(height: 16),
+            PsychPrimaryButton(
+              label: 'Retry',
+              icon: Icons.refresh_rounded,
+              expand: false,
+              onPressed: onRetry,
+            ),
           ],
         ),
       ),
@@ -288,152 +397,181 @@ class _BlogStat extends StatelessWidget {
 
 class _BlogCard extends StatelessWidget {
   final BlogEntity blog;
-  const _BlogCard({required this.blog});
+  final VoidCallback onTap;
+  const _BlogCard({required this.blog, required this.onTap});
 
-  // Blog status badge colors
-  static Color _statusColor(BlogStatus s) {
+  static (Color, String) _status(BlogStatus s) {
     switch (s) {
-      case BlogStatus.published: return const Color(0xFF34C759);
-      case BlogStatus.draft: return const Color(0xFFFF9500);
-      case BlogStatus.underReview: return const Color(0xFF30B0C7);
-      case BlogStatus.rejected: return const Color(0xFFFF3B30);
+      case BlogStatus.published:
+        return (PsychPalette.success, 'Published');
+      case BlogStatus.draft:
+        return (PsychPalette.warning, 'Draft');
+      case BlogStatus.underReview:
+        return (PsychPalette.teal, 'Under Review');
+      case BlogStatus.rejected:
+        return (PsychPalette.danger, 'Rejected');
     }
   }
 
-  static String _statusLabel(BlogStatus s) {
-    switch (s) {
-      case BlogStatus.draft: return 'Draft';
-      case BlogStatus.underReview: return 'Under Review';
-      case BlogStatus.published: return 'Published';
-      case BlogStatus.rejected: return 'Rejected';
-    }
-  }
-
-  // Category emoji mapping
   static String _categoryEmoji(String category) {
     const map = {
-      'Anxiety': '😟', 'Depression': '💙', 'Relationships': '💑',
-      'Stress': '😤', 'Sleep': '😴', 'Trauma': '🧠',
-      'Mindfulness': '🧘', 'Burnout': '🔥',
+      'anxiety': '😟', 'depression': '💙',
+      'relationships': '💑', 'mindfulness': '🧘',
+      'trauma': '💔', 'addiction': '🔗', 'parenting': '👨‍👩‍👧', 'career': '💼',
     };
-    return map[category] ?? '📝';
+    return map[category.toLowerCase()] ?? '📝';
   }
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = _statusColor(blog.status);
-    final emoji = _categoryEmoji(blog.category ?? '');
+    final (statusColor, statusLabel) = _status(blog.status);
+    final hasCategory = blog.category.trim().isNotEmpty;
+    final excerpt = blog.body.length > 110
+        ? '${blog.body.substring(0, 110).trim()}…'
+        : blog.body;
 
-    return Container(
+    return PsychCard(
+      onTap: onTap,
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, 2))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Cover area
-          Container(
-            height: 100,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [const Color(0xFF30B0C7).withOpacity(0.15), const Color(0xFF34C7A3).withOpacity(0.25)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: const BorderRadius.only(topLeft: Radius.circular(18), topRight: Radius.circular(18)),
-            ),
-            child: Stack(
-              children: [
-                Center(child: Text(emoji, style: const TextStyle(fontSize: 42))),
-                Positioned(
-                  top: 10, left: 12,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: statusColor,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(_statusLabel(blog.status), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-                  ),
-                ),
-                if (blog.category != null)
-                  Positioned(
-                    top: 10, right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.85),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(blog.category!, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF30B0C7))),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          // Content
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  blog.title,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E)),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  blog.body.substring(0, blog.body.length.clamp(0, 100)),
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF8E8E93), height: 1.4),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today_rounded, size: 12, color: Color(0xFF8E8E93)),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${blog.createdAt.day}/${blog.createdAt.month}/${blog.createdAt.year}',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF8E8E93)),
-                    ),
-                    const Spacer(),
-                    if (blog.viewCount != null) ...[
-                      const Icon(Icons.visibility_outlined, size: 12, color: Color(0xFF8E8E93)),
-                      const SizedBox(width: 4),
-                      Text('${blog.viewCount} views', style: const TextStyle(fontSize: 11, color: Color(0xFF8E8E93))),
-                    ],
+      padding: EdgeInsets.zero,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(PsychRadii.card),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 96,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    PsychPalette.teal.withValues(alpha: 0.16),
+                    PsychPalette.tealLight.withValues(alpha: 0.26),
                   ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                if (blog.status == BlogStatus.rejected) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF3B30).withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFFFF3B30)),
-                        SizedBox(width: 6),
-                        Expanded(child: Text('Rejected — please revise and resubmit', style: TextStyle(fontSize: 11, color: Color(0xFFFF3B30)))),
-                      ],
-                    ),
+              ),
+              child: Stack(
+                children: [
+                  Center(
+                    child: Text(_categoryEmoji(blog.category),
+                        style: const TextStyle(fontSize: 40)),
                   ),
+                  Positioned(
+                    top: 10,
+                    left: 12,
+                    child: PsychStatusPill(
+                        label: statusLabel, color: statusColor),
+                  ),
+                  if (hasCategory)
+                    Positioned(
+                      top: 10,
+                      right: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(PsychRadii.pill),
+                        ),
+                        child: Text(_categoryLabelStatic(blog.category),
+                            style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: PsychPalette.tealDeep)),
+                      ),
+                    ),
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    blog.title,
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: PsychPalette.ink),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    excerpt,
+                    style: const TextStyle(
+                        fontSize: 12.5,
+                        color: PsychPalette.inkSoft,
+                        height: 1.45),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today_rounded,
+                          size: 12, color: PsychPalette.inkFaint),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${blog.createdAt.day}/${blog.createdAt.month}/${blog.createdAt.year}',
+                        style: const TextStyle(
+                            fontSize: 11.5, color: PsychPalette.inkFaint),
+                      ),
+                      const Spacer(),
+                      const Icon(Icons.visibility_outlined,
+                          size: 13, color: PsychPalette.inkFaint),
+                      const SizedBox(width: 4),
+                      Text('${blog.viewCount}',
+                          style: const TextStyle(
+                              fontSize: 11.5, color: PsychPalette.inkFaint)),
+                      const SizedBox(width: 12),
+                      const Icon(Icons.mode_comment_outlined,
+                          size: 13, color: PsychPalette.inkFaint),
+                      const SizedBox(width: 4),
+                      Text('${blog.commentCount}',
+                          style: const TextStyle(
+                              fontSize: 11.5, color: PsychPalette.inkFaint)),
+                    ],
+                  ),
+                  if (blog.status == BlogStatus.rejected) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: PsychPalette.danger.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              size: 14, color: PsychPalette.danger),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                                'Rejected — please revise and resubmit',
+                                style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: PsychPalette.danger)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  static String _categoryLabelStatic(String value) => value
+      .replaceAll('_', ' ')
+      .split(' ')
+      .map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1))
+      .join(' ');
 }
-
-

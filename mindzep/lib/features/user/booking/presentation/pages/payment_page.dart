@@ -1,25 +1,42 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
+import 'package:flutter_cashfree_pg_sdk/utils/cfexceptions.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/currency_utils.dart';
 import '../../../../../core/widgets/app_button.dart';
 import '../../../../../core/widgets/app_card.dart';
 import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../appointments/data/models/appointment_models.dart';
+import '../../../appointments/data/repositories/appointment_repository.dart';
+import '../../../data/repositories/user_repository.dart';
+import '../../../payments/data/models/payment_models.dart';
+import '../../../payments/data/repositories/payment_repository.dart';
+import '../../../payments/data/services/cashfree_payment_service.dart';
+import '../../../../../injection/injection_container.dart';
 
 class PaymentPage extends StatefulWidget {
   final PsychologistEntity psychologist;
   final SlotEntity slot;
   final String sessionType;
 
+  /// The exact sub-range the user chose inside the availability window.
+  final DateTime bookedStartTime;
+  final int bookedDurationMinutes;
+
   const PaymentPage({
     super.key,
     required this.psychologist,
     required this.slot,
     required this.sessionType,
+    required this.bookedStartTime,
+    required this.bookedDurationMinutes,
   });
 
   @override
@@ -27,14 +44,98 @@ class PaymentPage extends StatefulWidget {
 }
 
 class _PaymentPageState extends State<PaymentPage> {
-  int _selectedMethod = 0;
   bool _isProcessing = false;
+  String _statusMessage = '';
 
-  final _methods = [
-    (icon: Icons.account_balance_wallet_rounded, label: 'UPI / Wallets'),
-    (icon: Icons.credit_card_rounded, label: 'Credit / Debit Card'),
-    (icon: Icons.account_balance_rounded, label: 'Net Banking'),
-  ];
+  late final AppointmentRepository _appointmentRepository;
+  late final PaymentRepository _paymentRepository;
+  late final UserRepository _userRepository;
+  late final CashfreePaymentService _cashfreeService;
+
+  String? _appointmentId;
+
+  /// Current wallet balance, fetched on entry. `null` while loading or if the
+  /// fetch failed (in which case we fall back to the payment gateway).
+  double? _walletBalance;
+  bool _walletLoading = true;
+
+  /// True when the wallet alone can cover the chargeable cost — in that case we
+  /// debit the wallet and never open the payment gateway.
+  bool get _canPayFromWallet =>
+      _walletBalance != null &&
+      _estimatedCost > 0 &&
+      _walletBalance! >= _estimatedCost;
+
+  // Charge for the chosen session length: the full booked duration billed at
+  // the psychologist's live backend rate. No free minutes — the booking is
+  // prepaid in full, so the call itself carries no per-minute charge.
+  double get _estimatedCost => CurrencyUtils.calculateCallCost(
+        totalSeconds: widget.bookedDurationMinutes * 60,
+        freeMinutes: 0,
+        ratePerMinute: widget.psychologist.ratePerMinute,
+      );
+
+  DateTime get _sessionEnd =>
+      widget.bookedStartTime.add(Duration(minutes: widget.bookedDurationMinutes));
+
+  String _hhmm(DateTime dt) =>
+      '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+
+  @override
+  void initState() {
+    super.initState();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _paymentRepository = sl<PaymentRepository>();
+    _userRepository = sl<UserRepository>();
+    _cashfreeService = sl<CashfreePaymentService>();
+
+    // Register Cashfree callbacks — must happen before doPayment is called
+    _cashfreeService.setCallbacks(
+      onSuccess: _onPaymentVerified,
+      onError: _onPaymentError,
+    );
+
+    _loadWallet();
+  }
+
+  // ── Wallet balance check ─────────────────────────────────────────────────
+  // If the balance covers the charge we pay from the wallet and skip Cashfree.
+  Future<void> _loadWallet() async {
+    try {
+      final wallet = await _userRepository.getMyWallet();
+      if (!mounted) return;
+      setState(() {
+        _walletBalance = wallet.balance;
+        _walletLoading = false;
+      });
+    } catch (_) {
+      // Wallet fetch failure simply falls back to the payment gateway.
+      if (!mounted) return;
+      setState(() {
+        _walletBalance = null;
+        _walletLoading = false;
+      });
+    }
+  }
+
+  // ── Cashfree callback: SDK confirmed payment ─────────────────────────────
+  void _onPaymentVerified(String orderId) {
+    _verifyWithBackend(orderId);
+  }
+
+  // ── Cashfree callback: payment failed / cancelled ────────────────────────
+  void _onPaymentError(CFErrorResponse errorResponse, String orderId) {
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = false;
+      _statusMessage = '';
+    });
+    AppSnackbar.show(
+      context,
+      message: errorResponse.getMessage() ?? 'Payment failed. Please try again.',
+      type: SnackbarType.error,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,75 +153,78 @@ class _PaymentPageState extends State<PaymentPage> {
               children: [
                 _buildOrderSummary(),
                 const SizedBox(height: AppDimensions.paddingL),
-                _buildPaymentMethods(),
-                const SizedBox(height: AppDimensions.paddingL),
-                _buildBillingNote(),
+                if (_canPayFromWallet)
+                  _buildWalletNote()
+                else
+                  _buildSecurePaymentNote(),
               ],
             ),
           ),
-          _buildPayButton(context),
+          _buildBottomBar(context),
         ],
       ),
     );
   }
 
   Widget _buildOrderSummary() {
-    final est = CurrencyUtils.calculateCallCost(
-        totalSeconds: 30 * 60,
-        freeMinutes: widget.psychologist.freeMinutes,
-        ratePerMinute: widget.psychologist.ratePerMinute);
+    final psych = widget.psychologist;
+    final est = _estimatedCost;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Order Summary',
-              style: AppTextStyles.headline
-                  .copyWith(color: AppColors.textPrimary)),
+              style: AppTextStyles.headline.copyWith(color: AppColors.textPrimary)),
           const SizedBox(height: AppDimensions.paddingM),
+          _SummaryRow(label: 'Psychologist', value: psych.name),
           _SummaryRow(
-              label: 'Psychologist', value: widget.psychologist.name),
+            label: 'Date',
+            value:
+                '${widget.bookedStartTime.day}/${widget.bookedStartTime.month}/${widget.bookedStartTime.year}',
+          ),
           _SummaryRow(
-              label: 'Date',
-              value: '${widget.slot.startTime.day}/${widget.slot.startTime.month}/${widget.slot.startTime.year}'),
+            label: 'Time',
+            value:
+                '${_hhmm(widget.bookedStartTime)} – ${_hhmm(_sessionEnd)}',
+          ),
           _SummaryRow(
-              label: 'Time',
-              value: '${widget.slot.startTime.hour.toString().padLeft(2, "0")}:${widget.slot.startTime.minute.toString().padLeft(2, "0")}'),
+            label: 'Session Type',
+            value: widget.sessionType == 'video' ? 'Video Call' : 'Audio Call',
+          ),
           _SummaryRow(
-              label: 'Session Type',
-              value: widget.sessionType == 'video'
-                  ? 'Video Call'
-                  : 'Audio Call'),
+            label: 'Session Duration',
+            value: '${widget.bookedDurationMinutes} min',
+          ),
           const Divider(height: 24),
           _SummaryRow(
-              label: 'Rate',
-              value: CurrencyUtils.formatRatePerMin(
-                  widget.psychologist.ratePerMinute),
-              highlight: true),
+            label: 'Rate',
+            value: CurrencyUtils.formatRatePerMin(psych.ratePerMinute),
+          ),
           _SummaryRow(
-              label: 'Est. for 30 min',
-              value: CurrencyUtils.formatRupees(est),
-              highlight: true),
+            label: 'Total',
+            value: CurrencyUtils.formatRupees(est),
+            highlight: true,
+          ),
+          if (_walletBalance != null)
+            _SummaryRow(
+              label: 'Wallet balance',
+              value: CurrencyUtils.formatRupees(_walletBalance!),
+            ),
           Container(
             margin: const EdgeInsets.only(top: AppDimensions.paddingS),
             padding: const EdgeInsets.all(AppDimensions.paddingS),
             decoration: BoxDecoration(
-              color: AppColors.info.withOpacity(0.08),
+              color: AppColors.info.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(AppDimensions.radiusS),
             ),
             child: Row(
               children: [
-                const Icon(Icons.info_outline_rounded,
-                    size: 14, color: AppColors.info),
+                const Icon(Icons.info_outline_rounded, size: 14, color: AppColors.info),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    CurrencyUtils.callBillingText(
-                      totalSeconds: 0,
-                      freeMinutes: widget.psychologist.freeMinutes,
-                      ratePerMinute: widget.psychologist.ratePerMinute,
-                    ),
-                    style: AppTextStyles.caption2
-                        .copyWith(color: AppColors.info),
+                    _billingExplanation(),
+                    style: AppTextStyles.caption2.copyWith(color: AppColors.info),
                   ),
                 ),
               ],
@@ -131,66 +235,43 @@ class _PaymentPageState extends State<PaymentPage> {
     );
   }
 
-  Widget _buildPaymentMethods() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Payment Method',
-            style: AppTextStyles.headline
-                .copyWith(color: AppColors.textPrimary)),
-        const SizedBox(height: AppDimensions.paddingS),
-        ..._methods.asMap().entries.map((e) {
-          final i = e.key;
-          final m = e.value;
-          return AppCard(
-            margin: const EdgeInsets.only(bottom: AppDimensions.paddingS),
-            onTap: () => setState(() => _selectedMethod = i),
-            child: Row(
-              children: [
-                Icon(m.icon,
-                    color: _selectedMethod == i
-                        ? AppColors.primary
-                        : AppColors.textSecondary),
-                const SizedBox(width: AppDimensions.paddingM),
-                Expanded(
-                  child: Text(m.label,
-                      style: AppTextStyles.subheadline.copyWith(
-                          color: _selectedMethod == i
-                              ? AppColors.textPrimary
-                              : AppColors.textSecondary)),
-                ),
-                Radio<int>(
-                  value: i,
-                  groupValue: _selectedMethod,
-                  activeColor: AppColors.primary,
-                  onChanged: (v) => setState(() => _selectedMethod = v!),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
+  /// Honest, backend-derived explanation of how the user is billed.
+  String _billingExplanation() {
+    return 'You pay for the full ${widget.bookedDurationMinutes}-minute session '
+        'now at ${CurrencyUtils.formatRatePerMin(widget.psychologist.ratePerMinute)}. '
+        'There are no extra per-minute charges during the call.';
   }
 
-  Widget _buildBillingNote() {
+  Widget _buildSecurePaymentNote() {
     return Container(
       padding: const EdgeInsets.all(AppDimensions.paddingM),
       decoration: BoxDecoration(
-        color: AppColors.warning.withOpacity(0.08),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded,
-              color: AppColors.warning, size: 20),
-          const SizedBox(width: AppDimensions.paddingS),
+          const Icon(Icons.lock_rounded, color: AppColors.success, size: 20),
+          const SizedBox(width: AppDimensions.paddingM),
           Expanded(
-            child: Text(
-              'You will only be charged for the actual duration of the call. '
-              'First 2 minutes are free.',
-              style:
-                  AppTextStyles.caption1.copyWith(color: AppColors.warning),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Secure payment',
+                  style: AppTextStyles.subheadline.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Pick UPI, cards or net banking on the next secure Cashfree screen.',
+                  style: AppTextStyles.caption1
+                      .copyWith(color: AppColors.textSecondary),
+                ),
+              ],
             ),
           ),
         ],
@@ -198,30 +279,310 @@ class _PaymentPageState extends State<PaymentPage> {
     );
   }
 
-  Widget _buildPayButton(BuildContext context) {
+  Widget _buildWalletNote() {
+    return Container(
+      padding: const EdgeInsets.all(AppDimensions.paddingM),
+      decoration: BoxDecoration(
+        color: AppColors.success.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppDimensions.radiusM),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.account_balance_wallet_rounded,
+              color: AppColors.success, size: 20),
+          const SizedBox(width: AppDimensions.paddingM),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Paying from wallet',
+                  style: AppTextStyles.subheadline.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Your wallet balance covers this booking, so '
+                  '${CurrencyUtils.formatRupees(_estimatedCost)} will be '
+                  'deducted from your wallet. No payment gateway needed.',
+                  style: AppTextStyles.caption1
+                      .copyWith(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(AppDimensions.paddingM),
-        child: AppButton(
-          label: 'Confirm Booking',
-          isLoading: _isProcessing,
-          onPressed: () => _processPayment(context),
+        padding: const EdgeInsets.fromLTRB(
+          AppDimensions.paddingM,
+          0,
+          AppDimensions.paddingM,
+          AppDimensions.paddingM,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_statusMessage.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppDimensions.paddingS),
+                child: Text(
+                  _statusMessage,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.caption1.copyWith(color: AppColors.textSecondary),
+                ),
+              ),
+            if (_walletLoading)
+              const AppButton(
+                label: 'Checking wallet…',
+                isLoading: true,
+                onPressed: null,
+              )
+            else if (_canPayFromWallet)
+              AppButton(
+                label: 'Pay ${CurrencyUtils.formatRupees(_estimatedCost)} from Wallet',
+                prefixIcon: Icons.account_balance_wallet_rounded,
+                isLoading: _isProcessing,
+                onPressed: _payFromWallet,
+              )
+            else
+              AppButton(
+                label: _estimatedCost > 0
+                    ? 'Pay ${CurrencyUtils.formatRupees(_estimatedCost)} & Confirm'
+                    : 'Confirm Booking',
+                isLoading: _isProcessing,
+                onPressed: _startPayment,
+              ),
+          ],
         ),
       ),
     );
   }
 
-  Future<void> _processPayment(BuildContext context) async {
-    setState(() => _isProcessing = true);
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    setState(() => _isProcessing = false);
-    context.pushReplacement(RouteNames.bookingConfirmed, extra: {
-      'psychologist': widget.psychologist,
-      'slot': widget.slot,
-      'sessionType': widget.sessionType,
+  // ── Real Cashfree payment flow ─────────────────────────────────────────────
+
+  Future<void> _startPayment() async {
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = 'Booking appointment...';
     });
+
+    try {
+      // Step 1: Book the appointment slot
+      if (_appointmentId == null) {
+        final appointment = await _appointmentRepository.bookAppointment(
+          BookAppointmentRequest(
+            slotId: widget.slot.id,
+            psychologistId: widget.psychologist.id,
+            sessionType: widget.sessionType,
+            startTime: widget.bookedStartTime,
+            durationMinutes: widget.bookedDurationMinutes,
+          ),
+        );
+        _appointmentId = appointment.id;
+      }
+
+      setState(() => _statusMessage = 'Creating payment order...');
+
+      // Step 2: Create Cashfree order on the backend
+      final orderData = await _paymentRepository.createOrder(
+        CreateOrderRequest(
+          type: 'appointment',
+          amount: _estimatedCost,
+          appointmentId: _appointmentId,
+        ),
+      );
+
+      setState(() => _statusMessage = 'Opening payment gateway...');
+
+      // Step 3: Launch Cashfree drop checkout
+      // This is synchronous — the sheet opens immediately and returns.
+      // Payment results arrive via _onPaymentVerified / _onPaymentError.
+      _cashfreeService.launchDropCheckout(
+        paymentSessionId: orderData.paymentSessionId,
+        cashfreeOrderId: orderData.orderId,
+      );
+
+      // Sheet is now visible — reset loading state so the user can see it
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _statusMessage = '';
+        });
+      }
+    } on CFException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _statusMessage = '';
+      });
+      AppSnackbar.show(context, message: e.message, type: SnackbarType.error);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _statusMessage = '';
+      });
+      final message = error is ApiErrorModel
+          ? error.message
+          : 'Payment setup failed. Please retry.';
+      AppSnackbar.show(context, message: message, type: SnackbarType.error);
+    }
   }
+
+  // ── Wallet payment flow (no gateway) ───────────────────────────────────────
+  //
+  // Books the slot, then debits the appointment cost from the wallet via the
+  // backend. On a paid status we go straight to the confirmation screen.
+
+  Future<void> _payFromWallet() async {
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = 'Booking appointment...';
+    });
+
+    try {
+      // Step 1: Book the appointment slot (idempotent — only once).
+      if (_appointmentId == null) {
+        final appointment = await _appointmentRepository.bookAppointment(
+          BookAppointmentRequest(
+            slotId: widget.slot.id,
+            psychologistId: widget.psychologist.id,
+            sessionType: widget.sessionType,
+            startTime: widget.bookedStartTime,
+            durationMinutes: widget.bookedDurationMinutes,
+          ),
+        );
+        _appointmentId = appointment.id;
+      }
+
+      setState(() => _statusMessage = 'Paying from wallet...');
+
+      // Step 2: Debit the wallet on the backend.
+      final result = await _paymentRepository.payFromWallet(
+        WalletPaymentRequest(
+          type: 'appointment',
+          amount: _estimatedCost,
+          appointmentId: _appointmentId,
+        ),
+      );
+
+      if (!mounted) return;
+
+      if (result.isPaid) {
+        context.pushReplacement(RouteNames.bookingConfirmed, extra: {
+          'psychologist': widget.psychologist,
+          'slot': widget.slot,
+          'sessionType': widget.sessionType,
+          'appointmentId': _appointmentId,
+          'bookedStartTime': widget.bookedStartTime,
+          'bookedDurationMinutes': widget.bookedDurationMinutes,
+        });
+      } else {
+        setState(() {
+          _isProcessing = false;
+          _statusMessage = '';
+        });
+        AppSnackbar.show(
+          context,
+          message: result.message.isNotEmpty
+              ? result.message
+              : 'Wallet payment failed. Please try again.',
+          type: SnackbarType.error,
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isProcessing = false;
+        _statusMessage = '';
+      });
+      final message = error is ApiErrorModel
+          ? error.message
+          : 'Wallet payment failed. Please retry.';
+      AppSnackbar.show(context, message: message, type: SnackbarType.error);
+    }
+  }
+
+  // ── Backend verification after Cashfree SDK success ──────────────────────
+  //
+  // Webhook-first: verify may briefly report "not paid" because the Cashfree
+  // webhook can land 1–5 s after the SDK callback. Re-verify every 2 s for up
+  // to ~15 s before showing the delayed-confirmation state.
+
+  static const _verifyPollInterval = Duration(seconds: 2);
+  static const _verifyPollAttempts = 7; // ~15 seconds total
+
+  Future<void> _verifyWithBackend(String cashfreeOrderId) async {
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = true;
+      _statusMessage = 'Verifying payment...';
+    });
+
+    var confirmed = await _tryVerify(cashfreeOrderId, attempt: 0);
+
+    for (var attempt = 1; !confirmed && attempt <= _verifyPollAttempts; attempt++) {
+      if (!mounted) return;
+      setState(() => _statusMessage =
+          'Waiting for payment confirmation... ($attempt/$_verifyPollAttempts)');
+      await Future.delayed(_verifyPollInterval);
+      if (!mounted) return;
+      confirmed = await _tryVerify(cashfreeOrderId, attempt: attempt);
+    }
+
+    if (!mounted) return;
+
+    if (confirmed) {
+      context.pushReplacement(RouteNames.bookingConfirmed, extra: {
+        'psychologist': widget.psychologist,
+        'slot': widget.slot,
+        'sessionType': widget.sessionType,
+        'appointmentId': _appointmentId,
+        'bookedStartTime': widget.bookedStartTime,
+        'bookedDurationMinutes': widget.bookedDurationMinutes,
+      });
+    } else {
+      setState(() {
+        _isProcessing = false;
+        _statusMessage = '';
+      });
+      // Payment succeeded on Cashfree but backend verification is pending.
+      // The backend webhook will update the appointment status automatically.
+      AppSnackbar.show(
+        context,
+        message: 'Payment received but confirmation is delayed. '
+            'Your booking will be updated shortly.',
+        type: SnackbarType.warning,
+      );
+    }
+  }
+
+  Future<bool> _tryVerify(String cashfreeOrderId, {required int attempt}) async {
+    try {
+      final result = await _paymentRepository.verifyPayment(
+        VerifyPaymentRequest(cashfreeOrderId: cashfreeOrderId),
+      );
+      if (kDebugMode) {
+        debugPrint(
+            '[Payment] verify #$attempt → status="${result.status}" paid=${result.isPaid}');
+      }
+      return result.isPaid && !result.isPendingWebhook;
+    } catch (error) {
+      if (kDebugMode) debugPrint('[Payment] verify #$attempt failed: $error');
+      return false;
+    }
+  }
+
 }
 
 class _SummaryRow extends StatelessWidget {
@@ -243,8 +604,7 @@ class _SummaryRow extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style: AppTextStyles.subheadline
-                  .copyWith(color: AppColors.textSecondary)),
+              style: AppTextStyles.subheadline.copyWith(color: AppColors.textSecondary)),
           Text(
             value,
             style: AppTextStyles.subheadline.copyWith(
@@ -257,5 +617,3 @@ class _SummaryRow extends StatelessWidget {
     );
   }
 }
-
-

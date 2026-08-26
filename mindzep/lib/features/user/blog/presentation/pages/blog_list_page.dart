@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
+import '../../../../../core/network/api_error_model.dart';
 import '../../../../../core/router/route_names.dart';
+import '../../../../../core/widgets/app_snackbar.dart';
+import '../../../../../injection/injection_container.dart';
+import '../../data/repositories/blog_repository.dart';
 
 class BlogListPage extends StatefulWidget {
   const BlogListPage({super.key});
@@ -12,17 +15,62 @@ class BlogListPage extends StatefulWidget {
 }
 
 class _BlogListPageState extends State<BlogListPage> {
+  late final BlogRepository _blogRepository;
+
   String _selectedCategory = 'All';
   String _search = '';
+  bool _loading = true;
+  String? _errorMessage;
+  List<BlogEntity> _allBlogs = const <BlogEntity>[];
 
   static const _categories = [
     'All', 'Anxiety', 'Depression', 'Relationships', 'Stress', 'Sleep', 'Trauma', 'Mindfulness',
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _blogRepository = sl<BlogRepository>();
+    _loadBlogs();
+  }
+
+  Future<void> _loadBlogs() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final models = await _blogRepository.listPublishedBlogs(page: 1, limit: 100);
+      if (!mounted) return;
+      setState(() {
+        _allBlogs = models.map((blog) => blog.toEntity()).toList();
+      });
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiErrorModel
+          ? error.message
+          : 'Unable to load articles.';
+      setState(() {
+        _errorMessage = message;
+      });
+      AppSnackbar.show(
+        context,
+        message: message,
+        type: SnackbarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final blogs = MockData.blogs
-        .where((b) => b.status == BlogStatus.published)
+    final blogs = _allBlogs
         .where((b) => _selectedCategory == 'All' || b.category == _selectedCategory)
         .where((b) => _search.isEmpty || b.title.toLowerCase().contains(_search.toLowerCase()))
         .toList();
@@ -128,6 +176,36 @@ class _BlogListPageState extends State<BlogListPage> {
             ),
           ),
 
+          if (_loading)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_errorMessage != null && _allBlogs.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.cloud_off_rounded, size: 42, color: Color(0xFF8E8E93)),
+                      const SizedBox(height: 10),
+                      Text(
+                        _errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Color(0xFF8E8E93)),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(onPressed: _loadBlogs, child: const Text('Retry')),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else ...[
+
           // ── Featured banner ──────────────────────────────────────────────
           if (blogs.isNotEmpty)
             SliverToBoxAdapter(
@@ -174,6 +252,7 @@ class _BlogListPageState extends State<BlogListPage> {
             ),
 
           const SliverToBoxAdapter(child: SizedBox(height: 40)),
+          ],
         ],
       ),
     );

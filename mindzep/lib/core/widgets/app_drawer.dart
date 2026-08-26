@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import '../mock/mock_data.dart';
+import '../../injection/injection_container.dart';
 import '../router/route_names.dart';
 import '../widgets/app_avatar.dart';
+import '../../features/psychologist/data/repositories/psychologist_repository.dart';
+import '../../features/user/appointments/data/repositories/appointment_repository.dart';
+import '../../features/user/data/repositories/user_repository.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_event.dart';
 
@@ -27,21 +30,63 @@ const _mainNav = [
 const _accountNav = [
   _NavItem(label: 'My Profile', icon: Icons.person_rounded, route: RouteNames.userProfile),
   _NavItem(label: 'Notifications', icon: Icons.notifications_rounded, route: RouteNames.userNotifications, badge: '3'),
-  _NavItem(label: 'Settings', icon: Icons.settings_rounded, route: ''),
+  _NavItem(label: 'Settings', icon: Icons.settings_rounded, route: RouteNames.userSettings),
 ];
 
 // ── Drawer widget ─────────────────────────────────────────────────────────────
 
-class AppUserDrawer extends StatelessWidget {
+class AppUserDrawer extends StatefulWidget {
   const AppUserDrawer({super.key});
 
   @override
+  State<AppUserDrawer> createState() => _AppUserDrawerState();
+}
+
+class _AppUserDrawerState extends State<AppUserDrawer> {
+  late final UserRepository _userRepository;
+  late final AppointmentRepository _appointmentRepository;
+  late final Future<_UserDrawerData> _drawerFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _userRepository = sl<UserRepository>();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _drawerFuture = _loadDrawerData();
+  }
+
+  Future<_UserDrawerData> _loadDrawerData() async {
+    final profile = await _userRepository.getMe();
+    final wallet = await _userRepository.getMyWallet();
+    final appointments = await _appointmentRepository.listAppointments(
+      page: 1,
+      limit: 100,
+    );
+
+    return _UserDrawerData(
+      name: profile.name.trim().isEmpty ? 'User' : profile.name,
+      avatarUrl: profile.avatarUrl,
+      sessions: appointments.items.length,
+      wallet: '₹${wallet.balance.toStringAsFixed(0)}',
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = MockData.currentUser;
+    final authUser = context.read<AuthBloc>().currentUser;
     final currentRoute = GoRouterState.of(context).matchedLocation;
-    final sessions = MockData.appointments.length;
+
+    return FutureBuilder<_UserDrawerData>(
+      future: _drawerFuture,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        final userName = (data?.name ?? authUser?.name ?? 'User').trim().isEmpty
+            ? 'User'
+            : (data?.name ?? authUser?.name ?? 'User').trim();
+        final avatarUrl = data?.avatarUrl ?? authUser?.avatarUrl;
+        final sessions = data?.sessions ?? 0;
+        final wallet = data?.wallet ?? '₹0';
     final streak = '7d';
-    const wallet = '₹415';
 
     return Drawer(
       width: 300,
@@ -137,9 +182,9 @@ class AppUserDrawer extends StatelessWidget {
                             ClipRRect(
                               borderRadius: BorderRadius.circular(14),
                               child: AppAvatar(
-                                imageUrl: user.avatarUrl,
+                                imageUrl: avatarUrl,
                                 radius: 28,
-                                initials: _initials(user.name),
+                                initials: _initials(userName),
                               ),
                             ),
                             Positioned(
@@ -159,7 +204,7 @@ class AppUserDrawer extends StatelessWidget {
                           Expanded(child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(user.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              Text(userName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2), maxLines: 1, overflow: TextOverflow.ellipsis),
                               const SizedBox(height: 2),
                               const Text('Mental Wellness Member', style: TextStyle(fontSize: 11, color: Color(0x80FFFFFF))),
                               const SizedBox(height: 5),
@@ -234,9 +279,20 @@ class AppUserDrawer extends StatelessWidget {
 
                           // Help
                           _PlainNavTile(
+                            icon: Icons.quiz_outlined,
+                            label: 'FAQs',
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.faqs);
+                            },
+                          ),
+                          _PlainNavTile(
                             icon: Icons.help_outline_rounded,
                             label: 'Help & Support',
-                            onTap: () => Navigator.of(context).pop(),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.helpSupport);
+                            },
                           ),
 
                           const SizedBox(height: 12),
@@ -291,13 +347,53 @@ class AppUserDrawer extends StatelessWidget {
         ),
       ),
     );
+      },
+    );
   }
 
   static String _initials(String name) {
-    final parts = name.trim().split(' ');
-    if (parts.length >= 2) return '${parts[0][0]}${parts[parts.length - 1][0]}'.toUpperCase();
-    return name[0].toUpperCase();
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return 'U';
+    final parts = trimmed
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'U';
+    if (parts.length >= 2) {
+      return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+    }
+    return parts.first[0].toUpperCase();
   }
+}
+
+class _UserDrawerData {
+  final String name;
+  final String? avatarUrl;
+  final int sessions;
+  final String wallet;
+
+  const _UserDrawerData({
+    required this.name,
+    required this.avatarUrl,
+    required this.sessions,
+    required this.wallet,
+  });
+}
+
+class _PsychDrawerData {
+  final String name;
+  final String specialization;
+  final int sessions;
+  final double rating;
+  final int yearsExperience;
+
+  const _PsychDrawerData({
+    required this.name,
+    required this.specialization,
+    required this.sessions,
+    required this.rating,
+    required this.yearsExperience,
+  });
 }
 
 // ── Supporting widgets ────────────────────────────────────────────────────────
@@ -442,16 +538,60 @@ const _psychAccountNav = [
   _NavItem(label: 'My Profile', icon: Icons.person_rounded, route: RouteNames.psychProfile),
 ];
 
-class AppPsychDrawer extends StatelessWidget {
+class AppPsychDrawer extends StatefulWidget {
   const AppPsychDrawer({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final psych = MockData.psychologists.first;
-    final currentRoute = GoRouterState.of(context).matchedLocation;
-    final sessions = MockData.psychSessions.length;
+  State<AppPsychDrawer> createState() => _AppPsychDrawerState();
+}
 
-    return Drawer(
+class _AppPsychDrawerState extends State<AppPsychDrawer> {
+  late final PsychologistRepository _psychologistRepository;
+  late final AppointmentRepository _appointmentRepository;
+  late final Future<_PsychDrawerData> _drawerFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _psychologistRepository = sl<PsychologistRepository>();
+    _appointmentRepository = sl<AppointmentRepository>();
+    _drawerFuture = _loadDrawerData();
+  }
+
+  Future<_PsychDrawerData> _loadDrawerData() async {
+    final profile = await _psychologistRepository.getMyProfile();
+    final appointments = await _appointmentRepository.listAppointments(
+      page: 1,
+      limit: 100,
+    );
+
+    return _PsychDrawerData(
+      name: profile.name.trim().isEmpty ? 'Psychologist' : profile.name,
+      specialization: profile.specialization.trim().isEmpty
+          ? 'General'
+          : profile.specialization,
+      sessions: appointments.items.length,
+      rating: profile.ratingAverage,
+      yearsExperience: profile.yearsExperience,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentRoute = GoRouterState.of(context).matchedLocation;
+    final authUser = context.read<AuthBloc>().currentUser;
+
+    return FutureBuilder<_PsychDrawerData>(
+      future: _drawerFuture,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        final psychName = data?.name ?? authUser?.name ?? 'Psychologist';
+        final specialization = data?.specialization ?? 'General';
+        final sessions = data?.sessions ?? 0;
+        final rating = data?.rating ?? 0;
+        final yearsExperience = data?.yearsExperience ?? 0;
+
+        return Drawer(
       width: 300,
       backgroundColor: Colors.transparent,
       child: Container(
@@ -549,7 +689,7 @@ class AppPsychDrawer extends StatelessWidget {
                               ),
                               child: Center(
                                 child: Text(
-                                  _initials(psych.name),
+                                  _initials(psychName),
                                   style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                                 ),
                               ),
@@ -571,9 +711,9 @@ class AppPsychDrawer extends StatelessWidget {
                           Expanded(child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(psych.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              Text(psychName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2), maxLines: 1, overflow: TextOverflow.ellipsis),
                               const SizedBox(height: 2),
-                              Text(psych.specialization, style: const TextStyle(fontSize: 11, color: Color(0x80FFFFFF)), maxLines: 1, overflow: TextOverflow.ellipsis),
+                              Text(specialization, style: const TextStyle(fontSize: 11, color: Color(0x80FFFFFF)), maxLines: 1, overflow: TextOverflow.ellipsis),
                               const SizedBox(height: 5),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -592,11 +732,11 @@ class AppPsychDrawer extends StatelessWidget {
                         ]),
                         const SizedBox(height: 12),
                         Row(children: [
-                          _StatsCell(label: 'Sessions', value: '${sessions + 230}'),
+                          _StatsCell(label: 'Sessions', value: '$sessions'),
                           const SizedBox(width: 8),
-                          _StatsCell(label: 'Rating', value: '${psych.ratingAverage.toStringAsFixed(1)}★'),
+                          _StatsCell(label: 'Rating', value: '${rating.toStringAsFixed(1)}★'),
                           const SizedBox(width: 8),
-                          _StatsCell(label: 'Experience', value: '${psych.yearsExperience}y'),
+                          _StatsCell(label: 'Experience', value: '${yearsExperience}y'),
                         ]),
                       ]),
                     ),
@@ -642,9 +782,20 @@ class AppPsychDrawer extends StatelessWidget {
                           const SizedBox(height: 6),
 
                           _PlainNavTile(
+                            icon: Icons.quiz_outlined,
+                            label: 'FAQs',
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.faqs);
+                            },
+                          ),
+                          _PlainNavTile(
                             icon: Icons.help_outline_rounded,
                             label: 'Help & Support',
-                            onTap: () => Navigator.of(context).pop(),
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              context.push(RouteNames.helpSupport);
+                            },
                           ),
 
                           const SizedBox(height: 12),
@@ -698,6 +849,8 @@ class AppPsychDrawer extends StatelessWidget {
           ],
         ),
       ),
+    );
+      },
     );
   }
 

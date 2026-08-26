@@ -17,4 +17,14 @@ class AppAssets {
   static const String successAnimation = 'assets/animations/success.json';
   static const String emptyAnimation = 'assets/animations/empty.json';
   static const String callAnimation = 'assets/animations/call.json';
+
+  // Onboarding animations (Lottie)
+  static const String onboardingCareAnimation =
+      'assets/animations/onboarding_care.json';
+  static const String onboardingSearchAnimation =
+      'assets/animations/onboarding_search.json';
+  static const String onboardingBookingAnimation =
+      'assets/animations/onboarding_booking.json';
+  static const String onboardingHealingAnimation =
+      'assets/animations/onboarding_healing.json';
 }

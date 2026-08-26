@@ -77,6 +77,9 @@ class SlotEntity extends Equatable {
     required this.status,
   });
 
+  /// End of the availability window.
+  DateTime get endTime => startTime.add(Duration(minutes: durationMinutes));
+
   @override
   List<Object?> get props => [id, startTime, status];
 }

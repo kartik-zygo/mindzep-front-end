@@ -17,9 +17,16 @@ class AuthLoading extends AuthState {
 
 class AuthAuthenticated extends AuthState {
   final UserEntity user;
-  const AuthAuthenticated(this.user);
+
+  /// True when this session was just created via Google Sign-Up — the user
+  /// has no phone number yet and should be routed to the complete-profile
+  /// screen.
+  final bool isNewGoogleUser;
+
+  const AuthAuthenticated(this.user, {this.isNewGoogleUser = false});
+
   @override
-  List<Object?> get props => [user];
+  List<Object?> get props => [user, isNewGoogleUser];
 }
 
 class AuthUnauthenticated extends AuthState {
@@ -27,10 +34,18 @@ class AuthUnauthenticated extends AuthState {
 }
 
 class AuthOtpSent extends AuthState {
-  final String email;
-  const AuthOtpSent(this.email);
+  final String identifier;
+  final String purpose;
+
+  const AuthOtpSent({
+    required this.identifier,
+    required this.purpose,
+  });
+
+  String get email => identifier;
+
   @override
-  List<Object?> get props => [email];
+  List<Object?> get props => [identifier, purpose];
 }
 
 class AuthOtpVerified extends AuthState {
@@ -39,6 +54,14 @@ class AuthOtpVerified extends AuthState {
 
 class AuthPasswordResetSuccess extends AuthState {
   const AuthPasswordResetSuccess();
+}
+
+class AuthOperationSuccess extends AuthState {
+  final String message;
+  const AuthOperationSuccess(this.message);
+
+  @override
+  List<Object?> get props => [message];
 }
 
 class AuthError extends AuthState {
