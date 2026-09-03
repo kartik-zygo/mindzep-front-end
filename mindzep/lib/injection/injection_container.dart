@@ -5,7 +5,6 @@ import '../core/network/token_storage.dart';
 import '../core/socket/socket_manager.dart';
 import '../features/admin/data/repositories/admin_repository.dart';
 import '../features/auth/data/repositories/auth_repository.dart';
-import '../features/auth/data/services/google_auth_service.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/common/uploads/data/repositories/upload_repository.dart';
 import '../features/psychologist/data/repositories/psychologist_repository.dart';
@@ -25,7 +24,6 @@ import '../features/user/home/presentation/bloc/psychologist_list_bloc.dart';
 import '../features/user/notifications/data/repositories/notification_repository.dart';
 import '../features/user/notifications/data/socket/notifications_socket_manager.dart';
 import '../features/user/payments/data/repositories/payment_repository.dart';
-import '../features/user/payments/data/services/cashfree_payment_service.dart';
 import '../features/user/public/data/repositories/public_repository.dart';
 import '../features/user/data/repositories/user_repository.dart';
 
@@ -92,8 +90,6 @@ Future<void> initDependencies() async {
 
   // Integration services
   sl.registerFactory<AgoraCallEngine>(() => AgoraCallEngine());
-  sl.registerLazySingleton<CashfreePaymentService>(() => CashfreePaymentService());
-  sl.registerLazySingleton<GoogleAuthService>(() => GoogleAuthService());
 
   // Socket managers
   sl.registerLazySingleton<ChatSocketManager>(
@@ -114,10 +110,7 @@ Future<void> initDependencies() async {
 
   // BLoCs — registered as factories so each context gets a fresh instance
   sl.registerFactory<AuthBloc>(
-    () => AuthBloc(
-      authRepository: sl<AuthRepository>(),
-      googleAuthService: sl<GoogleAuthService>(),
-    ),
+    () => AuthBloc(authRepository: sl<AuthRepository>()),
   );
   sl.registerFactory<PsychologistListBloc>(
     () => PsychologistListBloc(repository: sl<PsychologistRepository>()),

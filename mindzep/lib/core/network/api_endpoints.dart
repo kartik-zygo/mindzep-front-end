@@ -12,9 +12,7 @@ class ApiEndpoints {
   static const String forgotPassword = '/auth/forgot-password';
   static const String resetPassword = '/auth/reset-password';
   static const String changePassword = '/auth/change-password';
-  static const String google = '/auth/google';
   static const String resendOtp = '/auth/resend-otp';
-  static const String fcmToken = '/auth/fcm-token';
 
   // Users
   static const String users = '/users';
@@ -78,8 +76,8 @@ class ApiEndpoints {
   static const String paymentsVerify = '/payments/verify';
   static const String paymentsRefund = '/payments/refund';
   // Pays for an appointment (or top-up) directly from the user's wallet
-  // balance, skipping the Cashfree gateway. Backend must deduct the amount,
-  // mark the appointment paid, and return a paid/failed status.
+  // balance. Backend deducts the amount, marks the appointment paid, and
+  // returns a paid/failed status.
   static const String paymentsWalletPay = '/payments/wallet-pay';
 
   // Blogs

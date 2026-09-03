@@ -103,15 +103,10 @@ class AuthSession {
   final String refreshToken;
   final AuthUserModel? user;
 
-  /// True when `POST /auth/google` created a brand-new account. New Google
-  /// users have no phone number — route them to the complete-profile screen.
-  final bool isNewUser;
-
   const AuthSession({
     required this.accessToken,
     required this.refreshToken,
     this.user,
-    this.isNewUser = false,
   });
 
   factory AuthSession.fromJson(Map<String, dynamic> json) {
@@ -129,7 +124,6 @@ class AuthSession {
       accessToken: accessToken,
       refreshToken: refreshToken,
       user: userMap.isEmpty ? null : AuthUserModel.fromJson(userMap),
-      isNewUser: JsonReaders.readBool(json, ['isNewUser'], fallback: false),
     );
   }
 }
@@ -253,16 +247,6 @@ class ChangePasswordRequest {
   }
 }
 
-class GoogleLoginRequest {
-  final String idToken;
-
-  const GoogleLoginRequest({required this.idToken});
-
-  Map<String, dynamic> toJson() {
-    return {'idToken': idToken};
-  }
-}
-
 class ResendOtpRequest {
   final String identifier;
   final String purpose;
@@ -271,15 +255,5 @@ class ResendOtpRequest {
 
   Map<String, dynamic> toJson() {
     return {'identifier': identifier, 'purpose': purpose};
-  }
-}
-
-class UpdateFcmTokenRequest {
-  final String fcmToken;
-
-  const UpdateFcmTokenRequest({required this.fcmToken});
-
-  Map<String, dynamic> toJson() {
-    return {'fcmToken': fcmToken};
   }
 }

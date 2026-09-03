@@ -58,65 +58,38 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MindZep needs photo library access so you can choose a profile picture and attach documents.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>MindZep needs permission to save images such as payment receipts to your photo library.</string>
+	<string>MindZep needs permission to save images to your photo library.</string>
 
 	<!-- ── Background execution ────────────────────────────────────────────
 	     `audio` keeps an in-progress therapy call alive when the user leaves
-	     the app; `remote-notification` lets FCM deliver data-only pushes.
-	     Do NOT add `voip` unless PushKit is actually implemented — Apple
-	     rejects apps that declare it without a PKPushRegistry. -->
+	     the app. Do NOT add `voip` unless PushKit is actually implemented —
+	     Apple rejects apps that declare it without a PKPushRegistry. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
-		<string>remote-notification</string>
 	</array>
 
 	<!-- ── App Transport Security ──────────────────────────────────────────
-	     No exceptions: the app must talk to an HTTPS backend on iOS.
-	     A cleartext `http://` host (or a raw IP literal, which ATS exception
-	     domains cannot target at all) will fail every request silently.
-	     For local/dev runs against a plain-HTTP backend, pass an HTTPS URL:
-	       --dart-define=API_BASE_URL=https://staging-api.zygonich.com
-	       --dart-define=SOCKET_BASE_URL=https://staging-api.zygonich.com -->
+	     The backend currently runs on a plain-HTTP host reached by raw IP
+	     (http://150.241.245.88:8090). ATS cannot whitelist an IP literal
+	     through NSExceptionDomains, so arbitrary loads must be allowed or
+	     every request fails silently on iOS.
+
+	     Before submitting to the App Store, put the backend behind an HTTPS
+	     domain, set NSAllowsArbitraryLoads back to false, and point the build
+	     at it:
+	       --dart-define=API_BASE_URL=https://api.mindzep.com
+	       --dart-define=SOCKET_BASE_URL=https://api.mindzep.com -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
-		<false/>
+		<true/>
 	</dict>
 
-	<!-- ── UPI apps Cashfree hands off to ──────────────────────────────── -->
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>gpay</string>
-		<string>phonepe</string>
-		<string>paytmmp</string>
-		<string>upi</string>
-		<string>bhim</string>
-		<string>credpay</string>
-		<string>amazonpay</string>
-	</array>
-
-	<!-- ── Google Sign-In ──────────────────────────────────────────────────
-	     REQUIRED before Google login works on iOS. Open the
-	     GoogleService-Info.plist downloaded from Firebase, copy its
-	     REVERSED_CLIENT_ID value (looks like
-	     com.googleusercontent.apps.788249689957-xxxxxxxx) and paste it as the
-	     CFBundleURLSchemes string below, then delete this comment. -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>REPLACE_WITH_REVERSED_CLIENT_ID</string>
-			</array>
-		</dict>
-	</array>
-
 	<!-- ── Export compliance ───────────────────────────────────────────────
-	     The app uses only standard HTTPS/TLS, which is exempt. Declaring this
-	     here stops App Store Connect asking on every single upload. -->
+	     The app implements no encryption of its own and uses only the
+	     platform's standard TLS, which is exempt. Declaring this here stops
+	     App Store Connect asking on every single upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

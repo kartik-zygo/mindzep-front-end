@@ -417,32 +417,6 @@ class _CircleIconButton extends StatelessWidget {
   }
 }
 
-/// "── OR ──" divider used between the primary action and social sign-in.
-class AuthOrDivider extends StatelessWidget {
-  const AuthOrDivider({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(child: Divider()),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppDimensions.paddingM),
-          child: Text(
-            AppStrings.orDivider,
-            style: AppTextStyles.footnote.copyWith(
-              color: AppColors.textTertiary,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
-            ),
-          ),
-        ),
-        const Expanded(child: Divider()),
-      ],
-    );
-  }
-}
-
 /// Footer link used for "Don't have an account? Register" style prompts.
 class AuthFooterLink extends StatelessWidget {
   final String leading;

@@ -176,22 +176,19 @@ class FaqLibrary {
       question: 'How do I add money to my wallet?',
       answer:
           'Open the Wallet tab and tap Add Money, then choose an amount. '
-          'Payments are processed by Cashfree and support UPI, cards, net '
-          'banking and popular wallets. Your balance updates as soon as the '
-          'payment is confirmed.',
-      keywords: ['add money', 'top up', 'recharge', 'upi', 'card', 'cashfree'],
+          'Your balance is credited straight away and is ready to use for '
+          'your next session.',
+      keywords: ['add money', 'top up', 'recharge', 'balance', 'credit'],
       isPopular: true,
     ),
     FaqEntry(
       category: FaqCategory.payments,
-      question: 'Why is my payment still showing as pending?',
+      question: 'Why is my wallet balance not showing correctly?',
       answer:
-          'Bank confirmations occasionally take a minute or two. Leave the '
-          'Wallet screen open or pull down to refresh — if the money left your '
-          'account but the balance has not moved after about ten minutes, '
-          'email support@mindzep.com with the payment reference and it will be '
-          'reconciled.',
-      keywords: ['pending', 'stuck', 'failed', 'not credited', 'processing'],
+          'Pull down on the Wallet screen to refresh. If the balance still '
+          'looks wrong, email support@mindzep.com with the transaction date '
+          'and amount and it will be reconciled.',
+      keywords: ['pending', 'stuck', 'not credited', 'balance', 'wrong'],
     ),
     FaqEntry(
       category: FaqCategory.payments,
@@ -199,18 +196,16 @@ class FaqLibrary {
       answer:
           'Refunds for cancelled or missed sessions go back to your MindZep '
           'wallet, where they are available immediately for the next booking. '
-          'Refunds to the original payment method can be requested from '
-          'support and typically settle in 5–7 working days.',
+          'Anything else can be raised with support@mindzep.com.',
       keywords: ['refund', 'money back', 'reversal', 'return'],
     ),
     FaqEntry(
       category: FaqCategory.payments,
-      question: 'Is my payment information stored in the app?',
+      question: 'Is my card information stored in the app?',
       answer:
-          'No. Card and UPI details are handled entirely by our PCI-compliant '
-          'payment gateway and are never stored on MindZep servers or on your '
-          'device by the app.',
-      keywords: ['card details', 'secure', 'stored', 'pci', 'safety'],
+          'No. The app never asks for or stores card, UPI or bank details — '
+          'sessions are paid for from your MindZep wallet balance.',
+      keywords: ['card details', 'secure', 'stored', 'safety', 'privacy'],
     ),
     FaqEntry(
       category: FaqCategory.payments,
@@ -218,8 +213,8 @@ class FaqLibrary {
       answer:
           'Promotional credits appear in your wallet automatically when they '
           'apply, and pricing varies between psychologists — each profile '
-          'lists the rate before you book, so there are no surprises at '
-          'checkout.',
+          'lists the rate before you book, so there are no surprises when you '
+          'confirm.',
       keywords: ['free', 'discount', 'offer', 'coupon', 'price', 'cost'],
     ),
 

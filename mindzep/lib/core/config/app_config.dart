@@ -10,8 +10,7 @@ import 'package:mindzep/core/constants/api_constants.dart';
 ///
 /// Production release build:
 ///   flutter build appbundle \
-///     --dart-define=API_BASE_URL=https://api.mindzep.com \
-///     --dart-define=PAYMENT_ENV=production
+///     --dart-define=API_BASE_URL=https://api.mindzep.com
 class AppConfig {
   AppConfig._();
 
@@ -23,23 +22,11 @@ class AppConfig {
       String.fromEnvironment('SOCKET_BASE_URL');
   static const String _agoraAppIdDefine =
       String.fromEnvironment('AGORA_APP_ID');
-  static const String _paymentEnvDefine =
-      String.fromEnvironment('PAYMENT_ENV');
-
-  /// Legacy alias for PAYMENT_ENV kept for backwards compatibility with
-  /// existing build scripts / .env files.
-  static const String _cashfreeEnvironmentDefine =
-      String.fromEnvironment('CASHFREE_ENVIRONMENT');
 
   static late final String apiBaseUrl;
   static late final String socketBaseUrl;
   static late final String restBaseUrl;
   static late final String agoraAppId;
-
-  /// 'sandbox' | 'production' — drives the Cashfree SDK environment.
-  static late final String paymentEnv;
-
-  static bool get isPaymentProduction => paymentEnv == 'production';
 
   static Future<void> initialize({String envFileName = '.env'}) async {
     if (_initialized) return;
@@ -80,24 +67,6 @@ class AppConfig {
       dotenvKey: 'AGORA_APP_ID',
       fallback: ApiConstants.agoraAppId,
     );
-
-    final rawPaymentEnv = () {
-      // PAYMENT_ENV takes precedence over the legacy CASHFREE_ENVIRONMENT key.
-      if (_paymentEnvDefine.trim().isNotEmpty) return _paymentEnvDefine;
-      if (_cashfreeEnvironmentDefine.trim().isNotEmpty) {
-        return _cashfreeEnvironmentDefine;
-      }
-      final envValue = dotenv.env['PAYMENT_ENV']?.trim() ?? '';
-      if (envValue.isNotEmpty) return envValue;
-      final legacyEnvValue = dotenv.env['CASHFREE_ENVIRONMENT']?.trim() ?? '';
-      if (legacyEnvValue.isNotEmpty) return legacyEnvValue;
-      return 'sandbox';
-    }();
-
-    paymentEnv =
-        rawPaymentEnv.trim().toLowerCase() == 'production'
-            ? 'production'
-            : 'sandbox';
 
     _initialized = true;
   }

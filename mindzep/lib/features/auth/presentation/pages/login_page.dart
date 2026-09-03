@@ -50,12 +50,6 @@ class _LoginPageState extends State<LoginPage> {
         if (state is AuthAuthenticated) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!context.mounted) return;
-            // Brand-new Google accounts have no phone number — collect it
-            // before landing on the home screen.
-            if (state.isNewGoogleUser) {
-              context.go(RouteNames.completeProfile);
-              return;
-            }
             switch (state.user.role) {
               case UserRole.user:
                 context.go(RouteNames.userHome);
@@ -130,23 +124,6 @@ class _LoginPageState extends State<LoginPage> {
                     isLoading: state is AuthLoading,
                     onPressed: _login,
                   ),
-                ),
-              ),
-              const SizedBox(height: AppDimensions.paddingXL),
-              // Divider
-              const AuthOrDivider(),
-              const SizedBox(height: AppDimensions.paddingXL),
-              // Google Sign-In
-              BlocBuilder<AuthBloc, AuthState>(
-                builder: (ctx, state) => AppButton(
-                  label: AppStrings.continueWithGoogle,
-                  style: AppButtonStyle.outlined,
-                  prefixIcon: Icons.g_mobiledata_rounded,
-                  onPressed: state is AuthLoading
-                      ? null
-                      : () => ctx
-                          .read<AuthBloc>()
-                          .add(const GoogleSignInRequested()),
                 ),
               ),
               const SizedBox(height: AppDimensions.paddingXL),

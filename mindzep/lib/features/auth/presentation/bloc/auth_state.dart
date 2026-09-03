@@ -18,15 +18,10 @@ class AuthLoading extends AuthState {
 class AuthAuthenticated extends AuthState {
   final UserEntity user;
 
-  /// True when this session was just created via Google Sign-Up — the user
-  /// has no phone number yet and should be routed to the complete-profile
-  /// screen.
-  final bool isNewGoogleUser;
-
-  const AuthAuthenticated(this.user, {this.isNewGoogleUser = false});
+  const AuthAuthenticated(this.user);
 
   @override
-  List<Object?> get props => [user, isNewGoogleUser];
+  List<Object?> get props => [user];
 }
 
 class AuthUnauthenticated extends AuthState {
