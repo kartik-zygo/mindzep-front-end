@@ -1,7 +1,4 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_cashfree_pg_sdk/api/cferrorresponse/cferrorresponse.dart';
-import 'package:flutter_cashfree_pg_sdk/utils/cfexceptions.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../../core/constants/app_colors.dart';
 import '../../../../../core/constants/app_dimensions.dart';
@@ -18,7 +15,6 @@ import '../../../appointments/data/repositories/appointment_repository.dart';
 import '../../../data/repositories/user_repository.dart';
 import '../../../payments/data/models/payment_models.dart';
 import '../../../payments/data/repositories/payment_repository.dart';
-import '../../../payments/data/services/cashfree_payment_service.dart';
 import '../../../../../injection/injection_container.dart';
 
 class PaymentPage extends StatefulWidget {
@@ -50,17 +46,16 @@ class _PaymentPageState extends State<PaymentPage> {
   late final AppointmentRepository _appointmentRepository;
   late final PaymentRepository _paymentRepository;
   late final UserRepository _userRepository;
-  late final CashfreePaymentService _cashfreeService;
 
   String? _appointmentId;
 
   /// Current wallet balance, fetched on entry. `null` while loading or if the
-  /// fetch failed (in which case we fall back to the payment gateway).
+  /// fetch failed, in which case the booking is settled by the backend.
   double? _walletBalance;
   bool _walletLoading = true;
 
-  /// True when the wallet alone can cover the chargeable cost — in that case we
-  /// debit the wallet and never open the payment gateway.
+  /// True when the wallet alone can cover the chargeable cost — in that case
+  /// the balance is debited instead of letting the backend settle the order.
   bool get _canPayFromWallet =>
       _walletBalance != null &&
       _estimatedCost > 0 &&
@@ -87,19 +82,11 @@ class _PaymentPageState extends State<PaymentPage> {
     _appointmentRepository = sl<AppointmentRepository>();
     _paymentRepository = sl<PaymentRepository>();
     _userRepository = sl<UserRepository>();
-    _cashfreeService = sl<CashfreePaymentService>();
-
-    // Register Cashfree callbacks — must happen before doPayment is called
-    _cashfreeService.setCallbacks(
-      onSuccess: _onPaymentVerified,
-      onError: _onPaymentError,
-    );
 
     _loadWallet();
   }
 
   // ── Wallet balance check ─────────────────────────────────────────────────
-  // If the balance covers the charge we pay from the wallet and skip Cashfree.
   Future<void> _loadWallet() async {
     try {
       final wallet = await _userRepository.getMyWallet();
@@ -109,32 +96,12 @@ class _PaymentPageState extends State<PaymentPage> {
         _walletLoading = false;
       });
     } catch (_) {
-      // Wallet fetch failure simply falls back to the payment gateway.
       if (!mounted) return;
       setState(() {
         _walletBalance = null;
         _walletLoading = false;
       });
     }
-  }
-
-  // ── Cashfree callback: SDK confirmed payment ─────────────────────────────
-  void _onPaymentVerified(String orderId) {
-    _verifyWithBackend(orderId);
-  }
-
-  // ── Cashfree callback: payment failed / cancelled ────────────────────────
-  void _onPaymentError(CFErrorResponse errorResponse, String orderId) {
-    if (!mounted) return;
-    setState(() {
-      _isProcessing = false;
-      _statusMessage = '';
-    });
-    AppSnackbar.show(
-      context,
-      message: errorResponse.getMessage() ?? 'Payment failed. Please try again.',
-      type: SnackbarType.error,
-    );
   }
 
   @override
@@ -156,7 +123,7 @@ class _PaymentPageState extends State<PaymentPage> {
                 if (_canPayFromWallet)
                   _buildWalletNote()
                 else
-                  _buildSecurePaymentNote(),
+                  _buildNoPaymentNote(),
               ],
             ),
           ),
@@ -242,7 +209,7 @@ class _PaymentPageState extends State<PaymentPage> {
         'There are no extra per-minute charges during the call.';
   }
 
-  Widget _buildSecurePaymentNote() {
+  Widget _buildNoPaymentNote() {
     return Container(
       padding: const EdgeInsets.all(AppDimensions.paddingM),
       decoration: BoxDecoration(
@@ -252,14 +219,15 @@ class _PaymentPageState extends State<PaymentPage> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.lock_rounded, color: AppColors.success, size: 20),
+          const Icon(Icons.check_circle_outline_rounded,
+              color: AppColors.success, size: 20),
           const SizedBox(width: AppDimensions.paddingM),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Secure payment',
+                  'No payment needed',
                   style: AppTextStyles.subheadline.copyWith(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w600,
@@ -267,7 +235,8 @@ class _PaymentPageState extends State<PaymentPage> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Pick UPI, cards or net banking on the next secure Cashfree screen.',
+                  'Confirming this booking settles it straight away — there is '
+                  'no payment step to complete.',
                   style: AppTextStyles.caption1
                       .copyWith(color: AppColors.textSecondary),
                 ),
@@ -307,7 +276,7 @@ class _PaymentPageState extends State<PaymentPage> {
                 Text(
                   'Your wallet balance covers this booking, so '
                   '${CurrencyUtils.formatRupees(_estimatedCost)} will be '
-                  'deducted from your wallet. No payment gateway needed.',
+                  'deducted from your wallet.',
                   style: AppTextStyles.caption1
                       .copyWith(color: AppColors.textSecondary),
                 ),
@@ -356,11 +325,9 @@ class _PaymentPageState extends State<PaymentPage> {
               )
             else
               AppButton(
-                label: _estimatedCost > 0
-                    ? 'Pay ${CurrencyUtils.formatRupees(_estimatedCost)} & Confirm'
-                    : 'Confirm Booking',
+                label: 'Confirm Booking',
                 isLoading: _isProcessing,
-                onPressed: _startPayment,
+                onPressed: _confirmBooking,
               ),
           ],
         ),
@@ -368,33 +335,24 @@ class _PaymentPageState extends State<PaymentPage> {
     );
   }
 
-  // ── Real Cashfree payment flow ─────────────────────────────────────────────
+  // ── Booking + settlement ───────────────────────────────────────
+  //
+  // Books the slot, then asks the backend to create the order. Payments are
+  // disabled server-side, so the order comes back already settled and the
+  // booking is confirmed without any checkout step.
 
-  Future<void> _startPayment() async {
+  Future<void> _confirmBooking() async {
     setState(() {
       _isProcessing = true;
       _statusMessage = 'Booking appointment...';
     });
 
     try {
-      // Step 1: Book the appointment slot
-      if (_appointmentId == null) {
-        final appointment = await _appointmentRepository.bookAppointment(
-          BookAppointmentRequest(
-            slotId: widget.slot.id,
-            psychologistId: widget.psychologist.id,
-            sessionType: widget.sessionType,
-            startTime: widget.bookedStartTime,
-            durationMinutes: widget.bookedDurationMinutes,
-          ),
-        );
-        _appointmentId = appointment.id;
-      }
+      await _ensureAppointmentBooked();
 
-      setState(() => _statusMessage = 'Creating payment order...');
+      setState(() => _statusMessage = 'Confirming booking...');
 
-      // Step 2: Create Cashfree order on the backend
-      final orderData = await _paymentRepository.createOrder(
+      final order = await _paymentRepository.createOrder(
         CreateOrderRequest(
           type: 'appointment',
           amount: _estimatedCost,
@@ -402,30 +360,23 @@ class _PaymentPageState extends State<PaymentPage> {
         ),
       );
 
-      setState(() => _statusMessage = 'Opening payment gateway...');
+      if (!mounted) return;
 
-      // Step 3: Launch Cashfree drop checkout
-      // This is synchronous — the sheet opens immediately and returns.
-      // Payment results arrive via _onPaymentVerified / _onPaymentError.
-      _cashfreeService.launchDropCheckout(
-        paymentSessionId: orderData.paymentSessionId,
-        cashfreeOrderId: orderData.orderId,
-      );
-
-      // Sheet is now visible — reset loading state so the user can see it
-      if (mounted) {
+      if (!order.isSettled) {
         setState(() {
           _isProcessing = false;
           _statusMessage = '';
         });
+        AppSnackbar.show(
+          context,
+          message: 'This booking could not be confirmed automatically. '
+              'Please contact support.',
+          type: SnackbarType.error,
+        );
+        return;
       }
-    } on CFException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isProcessing = false;
-        _statusMessage = '';
-      });
-      AppSnackbar.show(context, message: e.message, type: SnackbarType.error);
+
+      _goToConfirmation();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -434,12 +385,12 @@ class _PaymentPageState extends State<PaymentPage> {
       });
       final message = error is ApiErrorModel
           ? error.message
-          : 'Payment setup failed. Please retry.';
+          : 'Booking failed. Please retry.';
       AppSnackbar.show(context, message: message, type: SnackbarType.error);
     }
   }
 
-  // ── Wallet payment flow (no gateway) ───────────────────────────────────────
+  // ── Wallet payment flow ────────────────────────────────────────
   //
   // Books the slot, then debits the appointment cost from the wallet via the
   // backend. On a paid status we go straight to the confirmation screen.
@@ -451,23 +402,10 @@ class _PaymentPageState extends State<PaymentPage> {
     });
 
     try {
-      // Step 1: Book the appointment slot (idempotent — only once).
-      if (_appointmentId == null) {
-        final appointment = await _appointmentRepository.bookAppointment(
-          BookAppointmentRequest(
-            slotId: widget.slot.id,
-            psychologistId: widget.psychologist.id,
-            sessionType: widget.sessionType,
-            startTime: widget.bookedStartTime,
-            durationMinutes: widget.bookedDurationMinutes,
-          ),
-        );
-        _appointmentId = appointment.id;
-      }
+      await _ensureAppointmentBooked();
 
       setState(() => _statusMessage = 'Paying from wallet...');
 
-      // Step 2: Debit the wallet on the backend.
       final result = await _paymentRepository.payFromWallet(
         WalletPaymentRequest(
           type: 'appointment',
@@ -479,14 +417,7 @@ class _PaymentPageState extends State<PaymentPage> {
       if (!mounted) return;
 
       if (result.isPaid) {
-        context.pushReplacement(RouteNames.bookingConfirmed, extra: {
-          'psychologist': widget.psychologist,
-          'slot': widget.slot,
-          'sessionType': widget.sessionType,
-          'appointmentId': _appointmentId,
-          'bookedStartTime': widget.bookedStartTime,
-          'bookedDurationMinutes': widget.bookedDurationMinutes,
-        });
+        _goToConfirmation();
       } else {
         setState(() {
           _isProcessing = false;
@@ -513,76 +444,33 @@ class _PaymentPageState extends State<PaymentPage> {
     }
   }
 
-  // ── Backend verification after Cashfree SDK success ──────────────────────
-  //
-  // Webhook-first: verify may briefly report "not paid" because the Cashfree
-  // webhook can land 1–5 s after the SDK callback. Re-verify every 2 s for up
-  // to ~15 s before showing the delayed-confirmation state.
+  /// Books the slot once — a retry after a failed settlement reuses the
+  /// appointment created by the first attempt.
+  Future<void> _ensureAppointmentBooked() async {
+    if (_appointmentId != null) return;
 
-  static const _verifyPollInterval = Duration(seconds: 2);
-  static const _verifyPollAttempts = 7; // ~15 seconds total
+    final appointment = await _appointmentRepository.bookAppointment(
+      BookAppointmentRequest(
+        slotId: widget.slot.id,
+        psychologistId: widget.psychologist.id,
+        sessionType: widget.sessionType,
+        startTime: widget.bookedStartTime,
+        durationMinutes: widget.bookedDurationMinutes,
+      ),
+    );
+    _appointmentId = appointment.id;
+  }
 
-  Future<void> _verifyWithBackend(String cashfreeOrderId) async {
-    if (!mounted) return;
-    setState(() {
-      _isProcessing = true;
-      _statusMessage = 'Verifying payment...';
+  void _goToConfirmation() {
+    context.pushReplacement(RouteNames.bookingConfirmed, extra: {
+      'psychologist': widget.psychologist,
+      'slot': widget.slot,
+      'sessionType': widget.sessionType,
+      'appointmentId': _appointmentId,
+      'bookedStartTime': widget.bookedStartTime,
+      'bookedDurationMinutes': widget.bookedDurationMinutes,
     });
-
-    var confirmed = await _tryVerify(cashfreeOrderId, attempt: 0);
-
-    for (var attempt = 1; !confirmed && attempt <= _verifyPollAttempts; attempt++) {
-      if (!mounted) return;
-      setState(() => _statusMessage =
-          'Waiting for payment confirmation... ($attempt/$_verifyPollAttempts)');
-      await Future.delayed(_verifyPollInterval);
-      if (!mounted) return;
-      confirmed = await _tryVerify(cashfreeOrderId, attempt: attempt);
-    }
-
-    if (!mounted) return;
-
-    if (confirmed) {
-      context.pushReplacement(RouteNames.bookingConfirmed, extra: {
-        'psychologist': widget.psychologist,
-        'slot': widget.slot,
-        'sessionType': widget.sessionType,
-        'appointmentId': _appointmentId,
-        'bookedStartTime': widget.bookedStartTime,
-        'bookedDurationMinutes': widget.bookedDurationMinutes,
-      });
-    } else {
-      setState(() {
-        _isProcessing = false;
-        _statusMessage = '';
-      });
-      // Payment succeeded on Cashfree but backend verification is pending.
-      // The backend webhook will update the appointment status automatically.
-      AppSnackbar.show(
-        context,
-        message: 'Payment received but confirmation is delayed. '
-            'Your booking will be updated shortly.',
-        type: SnackbarType.warning,
-      );
-    }
   }
-
-  Future<bool> _tryVerify(String cashfreeOrderId, {required int attempt}) async {
-    try {
-      final result = await _paymentRepository.verifyPayment(
-        VerifyPaymentRequest(cashfreeOrderId: cashfreeOrderId),
-      );
-      if (kDebugMode) {
-        debugPrint(
-            '[Payment] verify #$attempt → status="${result.status}" paid=${result.isPaid}');
-      }
-      return result.isPaid && !result.isPendingWebhook;
-    } catch (error) {
-      if (kDebugMode) debugPrint('[Payment] verify #$attempt failed: $error');
-      return false;
-    }
-  }
-
 }
 
 class _SummaryRow extends StatelessWidget {

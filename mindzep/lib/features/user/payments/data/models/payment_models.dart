@@ -20,9 +20,9 @@ class CreateOrderRequest {
   }
 }
 
-/// Request to pay for an appointment straight from the wallet balance,
-/// bypassing the Cashfree gateway. The backend response is parsed with
-/// [PaymentVerifyResult] (a `paid`/`failed` status).
+/// Request to pay for an appointment straight from the wallet balance.
+/// The backend response is parsed with [PaymentVerifyResult] (a
+/// `paid`/`failed` status).
 class WalletPaymentRequest {
   final String type;
   final double amount;
@@ -43,87 +43,82 @@ class WalletPaymentRequest {
   }
 }
 
-class CashfreeOrderModel {
+/// Response of `POST /payments/create-order`.
+///
+/// The backend settles the order itself while payments are switched off
+/// (`PAYMENTS_ENABLED=false`): it answers `status: "paid"`,
+/// `gateway: "none"` and `requiresGatewayCheckout: false`, and both
+/// [cfOrderId] and [paymentSessionId] come back null.
+///
+/// [requiresGatewayCheckout] is the branch to read. The defaults below are
+/// deliberately conservative so an older server that omits the new fields is
+/// reported as needing a checkout this build cannot open, rather than being
+/// mistaken for a settled order.
+class PaymentOrderModel {
   final String orderId;
-  final String paymentSessionId;
-  final double orderAmount;
-  final String orderCurrency;
-  final String? customerEmail;
-  final String? customerPhone;
-  final String? appId;
+  final String? cfOrderId;
+  final String? paymentSessionId;
 
-  const CashfreeOrderModel({
+  /// 'none' while payments are off, 'cashfree' when they are re-enabled.
+  final String gateway;
+
+  /// 'paid' once settled, 'created' when a checkout is still owed.
+  final String status;
+
+  final bool requiresGatewayCheckout;
+  final double amount;
+  final String currency;
+  final String? paymentId;
+
+  const PaymentOrderModel({
     required this.orderId,
+    required this.cfOrderId,
     required this.paymentSessionId,
-    required this.orderAmount,
-    required this.orderCurrency,
-    required this.customerEmail,
-    required this.customerPhone,
-    required this.appId,
+    required this.gateway,
+    required this.status,
+    required this.requiresGatewayCheckout,
+    required this.amount,
+    required this.currency,
+    required this.paymentId,
   });
 
-  factory CashfreeOrderModel.fromJson(Map<String, dynamic> json) {
-    return CashfreeOrderModel(
-      orderId: JsonReaders.readString(
+  factory PaymentOrderModel.fromJson(Map<String, dynamic> json) {
+    String? optional(List<String> keys) {
+      final value = JsonReaders.readString(json, keys).trim();
+      return value.isEmpty ? null : value;
+    }
+
+    return PaymentOrderModel(
+      orderId: JsonReaders.readString(json, ['cashfreeOrderId', 'orderId']),
+      cfOrderId: optional(['cfOrderId']),
+      paymentSessionId: optional(['paymentSessionId']),
+      gateway: JsonReaders.readString(json, ['gateway'], fallback: 'cashfree'),
+      status: JsonReaders.readString(json, ['status'], fallback: 'created')
+          .trim()
+          .toLowerCase(),
+      requiresGatewayCheckout: JsonReaders.readBool(
         json,
-        ['orderId', 'cashfreeOrderId', 'cfOrderId'],
+        ['requiresGatewayCheckout'],
+        fallback: true,
       ),
-      paymentSessionId: JsonReaders.readString(
+      amount: JsonReaders.readDouble(json, ['amount', 'orderAmount']),
+      currency: JsonReaders.readString(
         json,
-        ['paymentSessionId', 'tokenData', 'cfPaymentSessionId'],
-      ),
-      orderAmount: JsonReaders.readDouble(
-        json,
-        ['orderAmount', 'amount'],
-      ),
-      orderCurrency: JsonReaders.readString(
-        json,
-        ['orderCurrency', 'currency'],
+        ['currency', 'orderCurrency'],
         fallback: 'INR',
       ),
-      customerEmail: JsonReaders.readString(
-        json,
-        ['customerEmail', 'email'],
-      ).trim().isEmpty
-          ? null
-          : JsonReaders.readString(json, ['customerEmail', 'email']),
-      customerPhone: JsonReaders.readString(
-        json,
-        ['customerPhone', 'phone'],
-      ).trim().isEmpty
-          ? null
-          : JsonReaders.readString(json, ['customerPhone', 'phone']),
-      appId: JsonReaders.readString(json, ['appId']).trim().isEmpty
-          ? null
-          : JsonReaders.readString(json, ['appId']),
+      paymentId: optional(['paymentId']),
     );
   }
+
+  static const _paidStatuses = {'paid', 'success', 'completed', 'captured'};
+
+  /// The server already took the money (or waived it) — nothing left to do.
+  bool get isSettled =>
+      !requiresGatewayCheckout && _paidStatuses.contains(status);
 }
 
-class VerifyPaymentRequest {
-  final String cashfreeOrderId;
-  final String? cfPaymentId;
-
-  const VerifyPaymentRequest({
-    required this.cashfreeOrderId,
-    this.cfPaymentId,
-  });
-
-  Map<String, dynamic> toJson() {
-    return {
-      'cashfreeOrderId': cashfreeOrderId,
-      if (cfPaymentId != null && cfPaymentId!.isNotEmpty)
-        'cfPaymentId': cfPaymentId,
-    };
-  }
-}
-
-/// Typed result of `POST /payments/verify`.
-///
-/// In production the Cashfree webhook may land 1–5 s after the SDK success
-/// callback, so a 2xx verify response can still carry a "not paid yet"
-/// status. Callers should poll (verify again or check the wallet) before
-/// showing a failure state.
+/// Typed result of a settlement call such as `POST /payments/wallet-pay`.
 class PaymentVerifyResult {
   final String status;
   final String message;
@@ -162,11 +157,11 @@ class PaymentVerifyResult {
   };
 
   /// Backend confirmed the money. An empty status on a 2xx response is also
-  /// treated as paid (legacy verify responses carry no status field).
+  /// treated as paid (legacy responses carry no status field).
   bool get isPaid => status.isEmpty || _paidStatuses.contains(status);
 
-  /// Webhook hasn't landed yet — worth polling before declaring failure.
-  bool get isPendingWebhook => _pendingStatuses.contains(status);
+  /// Not settled yet — worth polling before declaring failure.
+  bool get isPending => _pendingStatuses.contains(status);
 }
 
 class PaymentRecordModel {
@@ -212,18 +207,4 @@ class RefundPaymentRequest {
       'reason': reason,
     };
   }
-}
-
-class CashfreeCheckoutResult {
-  final String status;
-  final String message;
-  final Map<String, dynamic> raw;
-
-  const CashfreeCheckoutResult({
-    required this.status,
-    required this.message,
-    required this.raw,
-  });
-
-  bool get isSuccess => status.toUpperCase() == 'SUCCESS';
 }

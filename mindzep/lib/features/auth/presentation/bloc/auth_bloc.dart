@@ -2,10 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/network/api_error_model.dart';
-import '../../../../core/services/firebase_service.dart';
 import '../../data/models/auth_models.dart';
 import '../../data/repositories/auth_repository.dart';
-import '../../data/services/google_auth_service.dart';
 import '../../domain/entities/user_entity.dart';
 import 'auth_event.dart';
 import 'auth_state.dart';
@@ -14,7 +12,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   static const Duration _sessionRefreshInterval = Duration(minutes: 10);
 
   final AuthRepository _authRepository;
-  final GoogleAuthService _googleAuthService;
 
   UserEntity? _currentUser;
   Timer? _sessionRefreshTimer;
@@ -22,23 +19,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
   UserEntity? get currentUser => _currentUser;
 
-  AuthBloc({
-    required AuthRepository authRepository,
-    required GoogleAuthService googleAuthService,
-  })  : _authRepository = authRepository,
-        _googleAuthService = googleAuthService,
+  AuthBloc({required AuthRepository authRepository})
+      : _authRepository = authRepository,
         super(const AuthInitial()) {
     on<AppStarted>(_onAppStarted);
     on<LoginRequested>(_onLogin);
     on<RegisterRequested>(_onRegister);
-    on<GoogleSignInRequested>(_onGoogleSignIn);
     on<LogoutRequested>(_onLogout);
     on<ForgotPasswordRequested>(_onForgotPassword);
     on<OtpVerified>(_onOtpVerified);
     on<ResendOtpRequested>(_onResendOtp);
     on<PasswordResetRequested>(_onPasswordReset);
     on<ChangePasswordRequested>(_onChangePassword);
-    on<UpdateFcmTokenRequested>(_onUpdateFcmToken);
     on<SessionRefreshRequested>(_onSessionRefreshRequested);
   }
 
@@ -58,7 +50,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       _currentUser = user;
       _startSessionRefresh();
       emit(AuthAuthenticated(user));
-      await _sendFcmToken();
     } catch (_) {
       _stopSessionRefresh();
       await _authRepository.clearSession();
@@ -80,7 +71,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       _currentUser = user;
       _startSessionRefresh();
       emit(AuthAuthenticated(user));
-      await _sendFcmToken();
     } catch (error) {
       emit(AuthError(_toErrorMessage(error)));
     }
@@ -112,56 +102,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  Future<void> _onGoogleSignIn(
-    GoogleSignInRequested event,
-    Emitter<AuthState> emit,
-  ) async {
-    final String? idToken;
-    try {
-      idToken = await _googleAuthService.getIdToken();
-    } on GoogleSignInConfigError catch (error) {
-      emit(AuthError(error.userMessage));
-      return;
-    } catch (error) {
-      emit(AuthError(_toErrorMessage(error)));
-      return;
-    }
-
-    // null idToken means the user dismissed the account picker — silently
-    // return without disturbing the current state.
-    if (idToken == null) return;
-
-    emit(const AuthLoading());
-
-    try {
-      final session = await _authRepository.googleLogin(
-        GoogleLoginRequest(idToken: idToken),
-      );
-
-      final user =
-          session.user?.toEntity() ?? await _authRepository.getCurrentUser();
-      await _authRepository.syncUserRole(user.role);
-      _currentUser = user;
-      _startSessionRefresh();
-      emit(AuthAuthenticated(user, isNewGoogleUser: session.isNewUser));
-      await _sendFcmToken();
-    } on ApiErrorModel catch (error) {
-      if (error.statusCode == 401) {
-        emit(const AuthError('Google sign-in failed, try again.'));
-      } else {
-        // 403 (account suspended) and others — surface the server message.
-        emit(AuthError(error.message));
-      }
-    } catch (error) {
-      emit(AuthError(_toErrorMessage(error)));
-    }
-  }
-
   Future<void> _onLogout(LogoutRequested event, Emitter<AuthState> emit) async {
     _stopSessionRefresh();
     await _authRepository.logout();
-    // Clear the Google session too so the account picker shows next time.
-    await _googleAuthService.signOut();
     _currentUser = null;
     emit(const AuthUnauthenticated());
   }
@@ -206,7 +149,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         _currentUser = user;
         _startSessionRefresh();
         emit(AuthAuthenticated(user));
-        await _sendFcmToken();
       } else {
         emit(const AuthOtpVerified());
       }
@@ -281,19 +223,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
   }
 
-  Future<void> _onUpdateFcmToken(
-    UpdateFcmTokenRequested event,
-    Emitter<AuthState> emit,
-  ) async {
-    try {
-      await _authRepository.updateFcmToken(
-        UpdateFcmTokenRequest(fcmToken: event.fcmToken),
-      );
-    } catch (_) {
-      // FCM sync failure should not block app navigation.
-    }
-  }
-
   Future<void> _onSessionRefreshRequested(
     SessionRefreshRequested event,
     Emitter<AuthState> emit,
@@ -322,18 +251,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // Existing interceptor-based refresh and retries will still protect requests.
     } finally {
       _isSessionRefreshInProgress = false;
-    }
-  }
-
-  Future<void> _sendFcmToken() async {
-    try {
-      final token = FirebaseService.instance.fcmToken;
-      if (token == null || token.isEmpty) return;
-      await _authRepository.updateFcmToken(
-        UpdateFcmTokenRequest(fcmToken: token),
-      );
-    } catch (_) {
-      // FCM sync failure should not block the user.
     }
   }
 

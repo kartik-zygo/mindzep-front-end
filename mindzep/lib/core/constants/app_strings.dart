@@ -16,8 +16,6 @@ class AppStrings {
   static const String forgotPassword = 'Forgot Password?';
   static const String dontHaveAccount = "Don't have an account? Register";
   static const String alreadyHaveAccount = 'Already have an account? Login';
-  static const String orDivider = 'OR';
-  static const String continueWithGoogle = 'Continue with Google';
   static const String sendOtp = 'Send OTP';
   static const String verifyOtp = 'Verify OTP';
   static const String resetPassword = 'Reset Password';

@@ -134,31 +134,11 @@ class AuthRepository {
     );
   }
 
-  Future<AuthSession> googleLogin(GoogleLoginRequest request) async {
-    final session = await _dioClient.post<AuthSession>(
-      ApiEndpoints.google,
-      data: request.toJson(),
-      requiresAuth: false,
-      parser: (json) => AuthSession.fromJson(JsonReaders.asMap(json)),
-    );
-
-    await _persistSession(session);
-    return session;
-  }
-
   Future<void> resendOtp(ResendOtpRequest request) {
     return _dioClient.post<void>(
       ApiEndpoints.resendOtp,
       data: request.toJson(),
       requiresAuth: false,
-      parser: (_) => null,
-    );
-  }
-
-  Future<void> updateFcmToken(UpdateFcmTokenRequest request) {
-    return _dioClient.post<void>(
-      ApiEndpoints.fcmToken,
-      data: request.toJson(),
       parser: (_) => null,
     );
   }

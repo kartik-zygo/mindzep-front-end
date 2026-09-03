@@ -9,7 +9,6 @@ class AppAssets {
   static const String avatarPlaceholder = 'assets/images/avatar_placeholder.png';
 
   // Icons
-  static const String googleIcon = 'assets/icons/google.svg';
   static const String logoSvg = 'assets/icons/logo.svg';
 
   // Animations (Lottie)

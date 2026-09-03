@@ -8,28 +8,23 @@ class PaymentRepository {
 
   final DioClient _dioClient;
 
-  Future<CashfreeOrderModel> createOrder(CreateOrderRequest request) {
-    return _dioClient.post<CashfreeOrderModel>(
+  /// Creates — and, while payments are switched off server-side, immediately
+  /// settles — a payment order. Read [PaymentOrderModel.isSettled] on the
+  /// result; there is no checkout to open.
+  Future<PaymentOrderModel> createOrder(CreateOrderRequest request) {
+    return _dioClient.post<PaymentOrderModel>(
       ApiEndpoints.paymentsCreateOrder,
       data: request.toJson(),
-      parser: (json) => CashfreeOrderModel.fromJson(JsonReaders.asMap(json)),
+      parser: (json) => PaymentOrderModel.fromJson(JsonReaders.asMap(json)),
     );
   }
 
   /// Pays for an appointment directly from the user's wallet balance.
   /// The backend deducts [request.amount], marks the appointment paid, and
-  /// returns a status — no Cashfree gateway is involved.
+  /// returns a status.
   Future<PaymentVerifyResult> payFromWallet(WalletPaymentRequest request) {
     return _dioClient.post<PaymentVerifyResult>(
       ApiEndpoints.paymentsWalletPay,
-      data: request.toJson(),
-      parser: (json) => PaymentVerifyResult.fromJson(JsonReaders.asMap(json)),
-    );
-  }
-
-  Future<PaymentVerifyResult> verifyPayment(VerifyPaymentRequest request) {
-    return _dioClient.post<PaymentVerifyResult>(
-      ApiEndpoints.paymentsVerify,
       data: request.toJson(),
       parser: (json) => PaymentVerifyResult.fromJson(JsonReaders.asMap(json)),
     );

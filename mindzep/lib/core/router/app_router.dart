@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/domain/entities/user_entity.dart';
 import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
-import '../../features/auth/presentation/pages/complete_profile_page.dart';
 import '../../features/auth/presentation/pages/forgot_password_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/auth/presentation/pages/onboarding_page.dart';
@@ -117,10 +116,6 @@ GoRouter createAppRouter(AuthBloc authBloc) => GoRouter(
     GoRoute(
       path: RouteNames.forgotPassword,
       builder: (_, __) => const ForgotPasswordPage(),
-    ),
-    GoRoute(
-      path: RouteNames.completeProfile,
-      builder: (_, __) => const CompleteProfilePage(),
     ),
 
     // ─── User Shell ────────────────────────────────────────────────────────

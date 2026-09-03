@@ -791,9 +791,9 @@ class _HelpSheet extends StatelessWidget {
   const _HelpSheet();
 
   static const _faqs = [
-    {'q': 'How do I book a session?', 'a': 'Tap "Consult" from the bottom nav, choose a therapist and tap "Book". Select a slot, choose a session type, and complete payment.'},
+    {'q': 'How do I book a session?', 'a': 'Tap "Consult" from the bottom nav, choose a therapist and tap "Book". Select a slot, choose a session type, and confirm.'},
     {'q': 'Is my conversation private?', 'a': 'Yes. All sessions are end-to-end encrypted and completely confidential. Your data is never shared without consent.'},
-    {'q': 'How do I add money to my wallet?', 'a': 'Go to Wallet from the bottom nav. Tap "Add Money" and choose an amount and payment method.'},
+    {'q': 'How do I add money to my wallet?', 'a': 'Go to Wallet from the bottom nav. Tap "Add Money" and choose an amount — your balance is credited right away.'},
     {'q': 'Can I cancel a session?', 'a': 'Yes, sessions can be cancelled up to 2 hours before the scheduled time from "My Sessions". A full refund will be issued to your wallet.'},
     {'q': 'How do I contact support?', 'a': 'Email us at support@mindzep.com or use the in-app chat (available 9 AM – 9 PM IST). We typically respond within 2 hours.'},
   ];

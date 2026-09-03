@@ -4,7 +4,7 @@
 # Debug builds do NOT minify, so anything missing here only shows up as a
 # runtime crash in the release AAB shipped to the Play Store (the app "works
 # in dev but crashes after download"). Keep every plugin that touches
-# reflection, serialization (Gson), or native bridges.
+# reflection, serialization, or native bridges.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Flutter engine / embedding ───────────────────────────────────────────────
@@ -24,15 +24,10 @@
 -dontwarn com.baseflow.permissionhandler.PermissionHandlerPlugin
 -dontwarn com.it_nomads.fluttersecurestorage.FlutterSecureStoragePlugin
 -dontwarn com.tekartik.sqflite.SqflitePlugin
--dontwarn io.flutter.plugins.googlesignin.GoogleSignInPlugin
 -dontwarn io.flutter.plugins.imagepicker.ImagePickerPlugin
 -dontwarn io.flutter.plugins.pathprovider.PathProviderPlugin
 -dontwarn io.flutter.plugins.sharedpreferences.SharedPreferencesPlugin
 -dontwarn io.flutter.plugins.urllauncher.UrlLauncherPlugin
-
-# ── Cashfree Payment Gateway SDK ─────────────────────────────────────────────
--keep class com.cashfree.** { *; }
--dontwarn com.cashfree.**
 
 # ── Agora RTC engine ─────────────────────────────────────────────────────────
 -keep class io.agora.** { *; }
@@ -47,28 +42,6 @@
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn javax.annotation.**
 -dontwarn javax.annotation.concurrent.**
-
-# ── flutter_local_notifications → Gson (de)serialization ─────────────────────
--keep class com.dexterous.** { *; }
--keep class com.google.gson.** { *; }
--keep class * extends com.google.gson.TypeAdapter
--keep class * implements com.google.gson.TypeAdapterFactory
--keep class * implements com.google.gson.JsonSerializer
--keep class * implements com.google.gson.JsonDeserializer
-# Keep generic signatures so Gson can resolve parameterized types under R8.
--keep,allowobfuscation,allowshrinking class com.google.gson.reflect.TypeToken
--keep,allowobfuscation,allowshrinking class * extends com.google.gson.reflect.TypeToken
--keepclassmembers,allowobfuscation class * {
-  @com.google.gson.annotations.SerializedName <fields>;
-}
-
-# ── Firebase / Cloud Messaging ───────────────────────────────────────────────
--keep class com.google.firebase.** { *; }
--dontwarn com.google.firebase.**
-
-# ── Google Sign-In / Play services ───────────────────────────────────────────
--keep class com.google.android.gms.** { *; }
--dontwarn com.google.android.gms.**
 
 # ── Play Core (Flutter deferred components / split install) ───────────────────
 -keep class com.google.android.play.core.** { *; }

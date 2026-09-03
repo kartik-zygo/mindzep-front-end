@@ -8,7 +8,6 @@ class RouteNames {
   static const register = '/register';
   static const verifyOtp = '/verify-otp';
   static const forgotPassword = '/forgot-password';
-  static const completeProfile = '/complete-profile';
 
   // User shell
   static const userHome = '/user/home';

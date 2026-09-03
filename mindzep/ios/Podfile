@@ -1,9 +1,9 @@
 # iOS deployment target.
 #
-# 14.0 is the floor imposed by this app's plugin set — firebase_core 3.x pulls
-# firebase-ios-sdk 11.x (iOS 13+), and agora_rtc_engine / flutter_cashfree_pg_sdk
-# both need 12+. Keep this in sync with IPHONEOS_DEPLOYMENT_TARGET in
-# Runner.xcodeproj, otherwise CocoaPods and Xcode disagree and the build fails.
+# 14.0 is the floor imposed by this app's plugin set — agora_rtc_engine and
+# file_picker are the binding constraints. Keep this in sync with
+# IPHONEOS_DEPLOYMENT_TARGET in Runner.xcodeproj, otherwise CocoaPods and Xcode
+# disagree and the build fails.
 platform :ios, '14.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
@@ -58,7 +58,7 @@ PERMISSION_MACROS = %w[
   PERMISSION_SPEECH_RECOGNIZER=0
   PERMISSION_PHOTOS=0
   PERMISSION_LOCATION=0
-  PERMISSION_NOTIFICATIONS=1
+  PERMISSION_NOTIFICATIONS=0
   PERMISSION_MEDIA_LIBRARY=0
   PERMISSION_SENSORS=0
   PERMISSION_BLUETOOTH=0
