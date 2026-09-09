@@ -202,11 +202,19 @@ class _PaymentPageState extends State<PaymentPage> {
     );
   }
 
-  /// Honest, backend-derived explanation of how the user is billed.
+  /// Honest explanation of what actually happens when the user confirms.
+  ///
+  /// Online card/UPI payment is not offered in this version, so the total is
+  /// either taken from an existing wallet balance or nothing is charged at
+  /// all — this text must never imply a charge that is not made.
   String _billingExplanation() {
-    return 'You pay for the full ${widget.bookedDurationMinutes}-minute session '
-        'now at ${CurrencyUtils.formatRatePerMin(widget.psychologist.ratePerMinute)}. '
-        'There are no extra per-minute charges during the call.';
+    if (_canPayFromWallet) {
+      return 'The full ${widget.bookedDurationMinutes}-minute session is '
+          'covered by your existing wallet balance. There are no extra '
+          'per-minute charges during the call.';
+    }
+    return 'No payment is taken for this booking. The rate above is shown for '
+        'reference only, and there are no per-minute charges during the call.';
   }
 
   Widget _buildNoPaymentNote() {

@@ -7,7 +7,6 @@ import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/widgets/app_avatar.dart';
-import '../../../wallet/presentation/pages/wallet_topup_page.dart';
 import '../bloc/call_bloc.dart';
 import '../models/call_route_payload.dart';
 
@@ -69,8 +68,7 @@ class ActiveCallScreen extends StatelessWidget {
         ]),
         content: Text(
           state.message ??
-              'Your wallet balance is exhausted. The call has been ended. '
-                  'Please recharge your wallet to continue talking.',
+              'Your wallet balance is exhausted. The call has been ended.',
           style: const TextStyle(color: Colors.white70, fontSize: 14),
         ),
         actions: [
@@ -278,12 +276,6 @@ class ActiveCallScreen extends StatelessWidget {
                       onTap: () =>
                           context.read<CallBloc>().add(const ToggleVideo()),
                     ),
-                    _ControlButton(
-                      icon: Icons.account_balance_wallet_rounded,
-                      label: 'Recharge',
-                      active: true,
-                      onTap: () => _openMidCallRecharge(context),
-                    ),
                   ],
                 ),
               ),
@@ -369,15 +361,14 @@ class ActiveCallScreen extends StatelessWidget {
     );
   }
 
-  /// Persistent, non-blocking low-balance warning with a mid-call recharge
-  /// shortcut. Cleared automatically when a heartbeat reports
-  /// `lowBalance == false` after a successful top-up.
+  /// Persistent, non-blocking low-balance warning. Cleared automatically when
+  /// a heartbeat reports `lowBalance == false`.
   Widget _buildLowBalanceBanner(BuildContext context, CallActive state) {
     final remaining = state.billing?.remainingMinutes;
     final message = state.lowBalanceMessage ??
         (remaining != null
             ? 'Low balance — about $remaining minute(s) of talk time left.'
-            : 'Low wallet balance — recharge now to avoid disconnection.');
+            : 'Low wallet balance — this call may end soon.');
 
     return Container(
       margin:
@@ -400,29 +391,8 @@ class ActiveCallScreen extends StatelessWidget {
               style: AppTextStyles.caption1.copyWith(color: Colors.white),
             ),
           ),
-          const SizedBox(width: 8),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: AppColors.error,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onPressed: () => _openMidCallRecharge(context),
-            child: const Text('Recharge', style: TextStyle(fontSize: 12)),
-          ),
         ],
       ),
-    );
-  }
-
-  /// Opens the wallet top-up flow on top of the call screen WITHOUT ending
-  /// the call. On success the next heartbeat picks up the new balance and the
-  /// low-balance banner clears automatically.
-  void _openMidCallRecharge(BuildContext context) {
-    Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const WalletTopUpPage()),
     );
   }
 

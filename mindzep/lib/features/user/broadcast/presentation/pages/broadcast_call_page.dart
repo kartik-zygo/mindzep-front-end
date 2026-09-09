@@ -341,8 +341,9 @@ class _BroadcastCallPageState extends State<BroadcastCallPage>
     );
   }
 
-  /// HTTP 402 INSUFFICIENT_WALLET_BALANCE — show current balance, the minimum
-  /// needed for one billed minute, and a shortcut to the top-up screen.
+  /// HTTP 402 INSUFFICIENT_WALLET_BALANCE — show current balance and the
+  /// minimum needed for one billed minute. Informational only: this version
+  /// of the app offers no way to add funds.
   void _showInsufficientBalanceDialog(
     BuildContext context,
     BroadcastInsufficientBalance state,
@@ -377,22 +378,14 @@ class _BroadcastCallPageState extends State<BroadcastCallPage>
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              context.go(RouteNames.userHome);
-            },
-            child:
-                const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
           FilledButton(
             style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF5E5CE6)),
             onPressed: () {
               Navigator.of(context).pop();
-              context.go(RouteNames.userWallet);
+              context.go(RouteNames.userHome);
             },
-            child: const Text('Add Money'),
+            child: const Text('OK'),
           ),
         ],
       ),

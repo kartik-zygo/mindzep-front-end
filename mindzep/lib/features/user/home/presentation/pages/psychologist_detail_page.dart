@@ -6,13 +6,13 @@ import '../../../../../core/constants/app_dimensions.dart';
 import '../../../../../core/constants/app_strings.dart';
 import '../../../../../core/constants/app_text_styles.dart';
 import '../../../../../core/entities/entities.dart';
-import '../../../../../core/mock/mock_data.dart';
 import '../../../../../core/router/route_names.dart';
 import '../../../../../core/utils/currency_utils.dart';
 import '../../../../../core/widgets/app_avatar.dart';
-import '../../../../../core/widgets/app_badge.dart';
 import '../../../../../core/widgets/app_button.dart';
 import '../../../../../core/widgets/app_card.dart';
+import '../../../../psychologist/data/repositories/psychologist_repository.dart';
+import '../../../../../injection/injection_container.dart';
 
 class PsychologistDetailPage extends StatefulWidget {
   final PsychologistEntity psychologist;
@@ -28,10 +28,47 @@ class _PsychologistDetailPageState extends State<PsychologistDetailPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
 
+  /// Reviews come from `GET /psychologists/{id}/reviews`. Until that call
+  /// lands the tab shows a spinner, and a failure or an empty list shows the
+  /// empty state — this screen never displays placeholder testimonials.
+  List<ReviewEntity> _reviews = const [];
+  bool _reviewsLoading = true;
+
   @override
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 3, vsync: this);
+    _loadReviews();
+  }
+
+  Future<void> _loadReviews() async {
+    try {
+      final models = await sl<PsychologistRepository>()
+          .getPsychologistReviews(widget.psychologist.id);
+      if (!mounted) return;
+      setState(() {
+        _reviews = models
+            .map(
+              (m) => ReviewEntity(
+                id: m.id,
+                userId: '',
+                userName: m.userName,
+                userAvatar: m.userAvatar,
+                rating: m.rating,
+                comment: m.comment,
+                createdAt: m.createdAt,
+              ),
+            )
+            .toList();
+        _reviewsLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _reviews = const [];
+        _reviewsLoading = false;
+      });
+    }
   }
 
   @override
@@ -239,7 +276,7 @@ class _PsychologistDetailPageState extends State<PsychologistDetailPage>
           controller: _tabCtrl,
           children: [
             _AboutTab(psychologist: p),
-            _ReviewsTab(reviews: MockData.reviews),
+            _ReviewsTab(reviews: _reviews, isLoading: _reviewsLoading),
             _SessionsTab(psychologist: p),
           ],
         ),
@@ -444,10 +481,46 @@ class _AboutTab extends StatelessWidget {
 
 class _ReviewsTab extends StatelessWidget {
   final List<ReviewEntity> reviews;
-  const _ReviewsTab({required this.reviews});
+  final bool isLoading;
+  const _ReviewsTab({required this.reviews, required this.isLoading});
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (reviews.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppDimensions.paddingXL),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.rate_review_outlined,
+                size: 40,
+                color: AppColors.textSecondary,
+              ),
+              const SizedBox(height: AppDimensions.paddingM),
+              Text(
+                'No reviews yet',
+                style: AppTextStyles.subheadline
+                    .copyWith(color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: AppDimensions.paddingXS),
+              Text(
+                'Reviews from clients appear here after their sessions.',
+                textAlign: TextAlign.center,
+                style: AppTextStyles.caption1
+                    .copyWith(color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ListView.separated(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),

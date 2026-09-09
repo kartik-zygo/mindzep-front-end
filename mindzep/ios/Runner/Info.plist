@@ -75,11 +75,14 @@
 	     through NSExceptionDomains, so arbitrary loads must be allowed or
 	     every request fails silently on iOS.
 
-	     Before submitting to the App Store, put the backend behind an HTTPS
-	     domain, set NSAllowsArbitraryLoads back to false, and point the build
-	     at it:
-	       --dart-define=API_BASE_URL=https://api.mindzep.com
-	       --dart-define=SOCKET_BASE_URL=https://api.mindzep.com -->
+	     KNOWN RISK — still open. Personal health data (sessions, appointments,
+	     profiles) currently travels unencrypted, and a store build reaching a
+	     raw-IP host is a Guideline 5.1.1 exposure independent of the 5.6
+	     rejection. Fix by putting the SAME backend behind an HTTPS domain (no
+	     API changes needed — only the scheme and host), then set
+	     NSAllowsArbitraryLoads back to false and build with:
+	       --dart-define=API_BASE_URL=https://<domain>
+	       --dart-define=SOCKET_BASE_URL=https://<domain> -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

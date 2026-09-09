@@ -175,9 +175,9 @@ class FaqLibrary {
       category: FaqCategory.payments,
       question: 'How do I add money to my wallet?',
       answer:
-          'Open the Wallet tab and tap Add Money, then choose an amount. '
-          'Your balance is credited straight away and is ready to use for '
-          'your next session.',
+          'Adding funds is not available in this version of the app. The '
+          'Wallet tab shows your current balance and session history only. '
+          'If you need help with your balance, email support@mindzep.com.',
       keywords: ['add money', 'top up', 'recharge', 'balance', 'credit'],
       isPopular: true,
     ),
@@ -236,8 +236,8 @@ class FaqLibrary {
       answer:
           'Your profile details are shared only with psychologists you '
           'actually book. Mood check-ins are yours; a psychologist sees them '
-          'only in the context of a session with you. Data is encrypted in '
-          'transit and never sold to advertisers.',
+          'only in the context of a session with you. Your data is never sold '
+          'to advertisers.',
       keywords: ['data', 'privacy', 'gdpr', 'share', 'personal information'],
     ),
     FaqEntry(

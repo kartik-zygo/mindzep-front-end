@@ -5,7 +5,6 @@ import '../../../data/models/user_models.dart';
 import '../../../data/repositories/user_repository.dart';
 import '../../../payments/data/models/payment_models.dart';
 import '../../../payments/data/repositories/payment_repository.dart';
-import 'wallet_topup_page.dart';
 
 class UserWalletPage extends StatefulWidget {
   const UserWalletPage({super.key});
@@ -40,18 +39,6 @@ class _UserWalletPageState extends State<UserWalletPage> {
     return _WalletData(wallet: wallet, payments: payments);
   }
 
-  Future<void> _openTopUp() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const WalletTopUpPage()),
-    );
-    // Refresh wallet data when user successfully topped up
-    if (result == true && mounted) {
-      setState(() {
-        _walletFuture = _loadWalletData();
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<_WalletData>(
@@ -69,18 +56,6 @@ class _UserWalletPageState extends State<UserWalletPage> {
 
         return Scaffold(
           backgroundColor: const Color(0xFFF2F2F7),
-          floatingActionButton: FloatingActionButton.extended(
-            onPressed: _openTopUp,
-            backgroundColor: const Color(0xFF34C759),
-            icon: const Icon(Icons.add_rounded, color: Colors.white),
-            label: const Text(
-              'Add Money',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
           body: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(

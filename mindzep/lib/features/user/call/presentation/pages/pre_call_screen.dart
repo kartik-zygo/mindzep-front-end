@@ -297,8 +297,8 @@ class _PreCallScreenState extends State<PreCallScreen> {
   }
 
   /// HTTP 402 INSUFFICIENT_WALLET_BALANCE from the call-start endpoint —
-  /// shows the current balance, the minimum needed for one billed minute,
-  /// and a shortcut to the wallet top-up screen.
+  /// shows the current balance and the minimum needed for one billed minute.
+  /// Informational only: this version of the app offers no way to add funds.
   void _showInsufficientBalanceDialog(
     BuildContext context,
     InsufficientBalanceError error,
@@ -331,19 +331,10 @@ class _PreCallScreenState extends State<PreCallScreen> {
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child:
-                const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              context.pop();
-              context.push(RouteNames.userWallet);
-            },
-            child: const Text('Add Money'),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
           ),
         ],
       ),

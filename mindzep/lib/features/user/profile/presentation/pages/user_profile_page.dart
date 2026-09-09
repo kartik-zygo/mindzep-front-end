@@ -558,7 +558,7 @@ class _ProfileData {
 const _privacyItems = [
   {'title': 'Information We Collect', 'body': 'We collect information you provide directly, such as your name, email address, phone number, and any content you submit. We also collect usage data to improve the app experience.'},
   {'title': 'How We Use Your Information', 'body': 'Your data is used to provide personalized mental health services, connect you with therapists, and improve our platform. We never sell your personal information.'},
-  {'title': 'Data Security', 'body': 'All session data is end-to-end encrypted. We follow industry-standard security practices and comply with applicable data protection regulations.'},
+  {'title': 'Data Security', 'body': 'We follow industry-standard security practices to protect your data and comply with applicable data protection regulations. Video and audio sessions are not recorded.'},
   {'title': 'Your Rights', 'body': 'You have the right to access, update, or delete your personal data at any time. Contact support@mindzep.com for any data-related requests.'},
   {'title': 'Cookies & Analytics', 'body': 'We use anonymous analytics to understand usage patterns. No personally identifiable information is shared with third-party analytics providers.'},
 ];
@@ -792,8 +792,8 @@ class _HelpSheet extends StatelessWidget {
 
   static const _faqs = [
     {'q': 'How do I book a session?', 'a': 'Tap "Consult" from the bottom nav, choose a therapist and tap "Book". Select a slot, choose a session type, and confirm.'},
-    {'q': 'Is my conversation private?', 'a': 'Yes. All sessions are end-to-end encrypted and completely confidential. Your data is never shared without consent.'},
-    {'q': 'How do I add money to my wallet?', 'a': 'Go to Wallet from the bottom nav. Tap "Add Money" and choose an amount — your balance is credited right away.'},
+    {'q': 'Is my conversation private?', 'a': 'Your sessions are confidential. Calls are not recorded, and your data is never shared without your consent.'},
+    {'q': 'How do I see my wallet balance?', 'a': 'Go to Wallet from the bottom nav to view your current balance and session history. Adding funds is not available in this version.'},
     {'q': 'Can I cancel a session?', 'a': 'Yes, sessions can be cancelled up to 2 hours before the scheduled time from "My Sessions". A full refund will be issued to your wallet.'},
     {'q': 'How do I contact support?', 'a': 'Email us at support@mindzep.com or use the in-app chat (available 9 AM – 9 PM IST). We typically respond within 2 hours.'},
   ];
