@@ -70,23 +70,15 @@
 	</array>
 
 	<!-- ── App Transport Security ──────────────────────────────────────────
-	     The backend currently runs on a plain-HTTP host reached by raw IP
-	     (http://150.241.245.88:8090). ATS cannot whitelist an IP literal
-	     through NSExceptionDomains, so arbitrary loads must be allowed or
-	     every request fails silently on iOS.
-
-	     KNOWN RISK — still open. Personal health data (sessions, appointments,
-	     profiles) currently travels unencrypted, and a store build reaching a
-	     raw-IP host is a Guideline 5.1.1 exposure independent of the 5.6
-	     rejection. Fix by putting the SAME backend behind an HTTPS domain (no
-	     API changes needed — only the scheme and host), then set
-	     NSAllowsArbitraryLoads back to false and build with:
-	       --dart-define=API_BASE_URL=https://<domain>
-	       --dart-define=SOCKET_BASE_URL=https://<domain> -->
+	     The backend is served over HTTPS at
+	     https://www.zygonich.com/mindzep-api (REST and Socket.IO), and uploads
+	     come back as https://storage.googleapis.com URLs, so the app needs no
+	     cleartext exception. The old http://150.241.245.88:8090 host required
+	     NSAllowsArbitraryLoads=true; do not point an iOS build back at it. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
-		<true/>
+		<false/>
 	</dict>
 
 	<!-- ── Export compliance ───────────────────────────────────────────────

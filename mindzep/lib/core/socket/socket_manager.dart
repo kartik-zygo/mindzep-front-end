@@ -31,11 +31,12 @@ class SocketManager {
     }
 
     final accessToken = await _tokenStorage.getAccessToken();
-    final uri = '${AppConfig.socketBaseUrl}$normalizedNamespace';
+    final uri = '${AppConfig.socketOrigin}$normalizedNamespace';
 
     final socket = io.io(
       uri,
       io.OptionBuilder()
+          .setPath(AppConfig.socketPath)
           .setTransports(['websocket'])
           .enableReconnection()
           .setReconnectionDelay(1000)

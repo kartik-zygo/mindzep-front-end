@@ -109,30 +109,24 @@ complete inventory, and state what changed.
 
 ---
 
-## Still open (deferred by decision, 2026-09-09)
+## Resolved: HTTPS backend (2026-09-25)
 
-**The backend runs over plaintext HTTP on a raw IP** (`http://150.241.245.88:8090`),
-which requires `NSAllowsArbitraryLoads=true` in `ios/Runner/Info.plist` to
-function on iOS. You chose to leave the API as-is for now.
+The backend moved from `http://150.241.245.88:8090` to
+`https://www.zygonich.com/mindzep-api` (Traefik, Let's Encrypt), and
+`NSAllowsArbitraryLoads` is now `false` in `ios/Runner/Info.plist`.
 
-Be aware of what remains exposed:
+Build 1.0 was then rejected with `Socket connection error [/call] ...
+https://www.zygonich.com:0/socket.io/ ... HTTP status code: 404`. The Socket.IO
+client treats the URL path as the namespace, so the `/mindzep-api` prefix was
+dropped from the handshake path and the request landed on the website root.
+`AppConfig.socketPath` now carries the prefix (`/mindzep-api/socket.io`). The
+`:0` in that message is only how Dart prints a `wss://` URI; it is not a real
+port.
 
-- Personal health data — session records, appointments, profile details — is
-  transmitted unencrypted. This is a **Guideline 5.1.1 (Data Collection and
-  Storage)** risk independent of the 5.6 rejection, and a genuine risk to your
-  users today.
-- A store build that talks to a raw-IP host is one of the signals that
-  contributes to the "different behaviour during review" pattern.
-- Because of this, the app can no longer honestly claim end-to-end encryption;
-  the help and privacy copy has been corrected accordingly.
-
-The fix requires **no API or application changes** — point a domain at the same
-server and terminate TLS (Cloudflare proxy, or nginx with Let's Encrypt).
-Then set `NSAllowsArbitraryLoads` to `false` and build with:
+The URL is compiled in as the `ApiConstants` fallback. Passing it explicitly
+is equivalent:
 
 ```
---dart-define=API_BASE_URL=https://<domain>
---dart-define=SOCKET_BASE_URL=https://<domain>
+--dart-define=API_BASE_URL=https://www.zygonich.com/mindzep-api
+--dart-define=SOCKET_BASE_URL=https://www.zygonich.com/mindzep-api
 ```
-
-Worth doing before the next submission if time allows.

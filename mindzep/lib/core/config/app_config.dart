@@ -10,7 +10,7 @@ import 'package:mindzep/core/constants/api_constants.dart';
 ///
 /// Production release build:
 ///   flutter build appbundle \
-///     --dart-define=API_BASE_URL=https://api.mindzep.com
+///     --dart-define=API_BASE_URL=https://www.zygonich.com/mindzep-api
 class AppConfig {
   AppConfig._();
 
@@ -25,6 +25,19 @@ class AppConfig {
 
   static late final String apiBaseUrl;
   static late final String socketBaseUrl;
+
+  /// Scheme + host (+ port) of [socketBaseUrl]. Namespaces are appended to
+  /// this, e.g. `https://www.zygonich.com/call`.
+  static late final String socketOrigin;
+
+  /// Engine.IO path, e.g. `/mindzep-api/socket.io`.
+  ///
+  /// socket_io_client reads the path of the connection URL as the namespace,
+  /// so a reverse-proxy prefix in [socketBaseUrl] must go here instead —
+  /// otherwise the handshake goes to `/socket.io` at the host root (404) and
+  /// asks for namespace `/mindzep-api/call`.
+  static late final String socketPath;
+
   static late final String restBaseUrl;
   static late final String agoraAppId;
 
@@ -60,6 +73,9 @@ class AppConfig {
             : apiBaseUrl,
       ),
     );
+    final socketUri = Uri.parse(socketBaseUrl);
+    socketOrigin = socketUri.origin;
+    socketPath = '${_sanitizeUrl(socketUri.path)}/socket.io';
     restBaseUrl = '$apiBaseUrl/api/v1';
 
     agoraAppId = _resolveValue(
